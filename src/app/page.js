@@ -437,7 +437,7 @@ function HospitalSummary({ data }) {
       {/* Sort controls */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-xs text-gray-500 font-medium">Sort by:</span>
-        {%�evenue', 'bookings', 'conversion'].map(s => (
+        {['revenue', 'bookings', 'conversion'].map(s => (
           <button key={s} onClick={() => setSortBy(s)}
             className={`px-3 py-1 rounded-full text-xs font-medium transition
               ${sortBy === s ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
