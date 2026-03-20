@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/snowflake';
-import { buildFinanceQuery } from '@/lib/queries';
+import { buildFunnelQuery } from '@/lib/queries';
 import { getDateRange } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export async function GET(request) {
     const mtdEnd = searchParams.get('end') || dates.mtdEnd;
     const dayBefore = searchParams.get('dayBefore') || dates.dayBefore;
 
-    const sql = buildFinanceQuery(mtdStart, mtdEnd, dayBefore);
+    const sql = buildFunnelQuery(mtdStart, mtdEnd, dayBefore);
     const rows = await executeQuery(sql);
 
     return NextResponse.json({
@@ -22,7 +22,7 @@ export async function GET(request) {
       dates: { mtdStart, mtdEnd, dayBefore, reportDate: dates.reportDate, monthName: dates.monthName },
     });
   } catch (error) {
-    console.error('Finance API error:', error);
+    console.error('Funnel API error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
