@@ -33,29 +33,28 @@ export const TARGETS = {
   dqr_pct: 35,
 };
 
-// Compute IST dates for dashboard
+// Compute IST dates for dashboard — MTD till today, compare today vs yesterday
 export function getDateRange() {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
   const istNow = new Date(now.getTime() + istOffset);
 
+  const today = new Date(istNow);
   const yesterday = new Date(istNow);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  const dayBefore = new Date(istNow);
-  dayBefore.setDate(dayBefore.getDate() - 2);
-
-  const mtdStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
+  const mtdStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
   const fmt = (d) => d.toISOString().split('T')[0];
 
   return {
     mtdStart: fmt(mtdStart),
-    mtdEnd: fmt(yesterday),
-    dayBefore: fmt(dayBefore),
-    reportDate: yesterday.toLocaleDateString('en-IN', {
+    mtdEnd: fmt(today),        // MTD includes today
+    today: fmt(today),          // today's snapshot
+    yesterday: fmt(yesterday),  // comparison day
+    reportDate: today.toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short', year: 'numeric',
     }),
-    monthName: yesterday.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
+    monthName: today.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
   };
 }
