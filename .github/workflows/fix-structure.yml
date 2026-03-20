@@ -1,0 +1,35 @@
+name: Fix repo structure
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fix-structure.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  restructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Move files to correct directories
+        run: |
+          mkdir -p src/lib src/app/api/funnel src/app/api/finance
+          [ -f constants.js ] && mv constants.js src/lib/constants.js
+          [ -f snowflake.js ] && mv snowflake.js src/lib/snowflake.js
+          [ -f queries.js ] && mv queries.js src/lib/queries.js
+          [ -f email-template.html ] && mv email-template.html src/lib/email-template.html
+          [ -f globals.css ] && mv globals.css src/app/globals.css
+          [ -f layout.js ] && mv layout.js src/app/layout.js
+          [ -f page.js ] && mv page.js src/app/page.js
+          [ -f route.js ] && mv route.js src/app/api/funnel/route.js
+
+      - name: Commit restructured files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: Restructure files into proper Next.js directory layout" || echo "No changes"
+          git push
