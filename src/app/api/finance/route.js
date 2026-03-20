@@ -12,14 +12,15 @@ export async function GET(request) {
     const dates = getDateRange();
     const mtdStart = searchParams.get('start') || dates.mtdStart;
     const mtdEnd = searchParams.get('end') || dates.mtdEnd;
-    const dayBefore = searchParams.get('dayBefore') || dates.dayBefore;
+    const today = searchParams.get('today') || dates.today;
+    const yesterday = searchParams.get('yesterday') || dates.yesterday;
 
-    const sql = buildFinanceQuery(mtdStart, mtdEnd, dayBefore);
+    const sql = buildFinanceQuery(mtdStart, mtdEnd, today, yesterday);
     const rows = await executeQuery(sql);
 
     return NextResponse.json({
       data: rows,
-      dates: { mtdStart, mtdEnd, dayBefore, reportDate: dates.reportDate, monthName: dates.monthName },
+      dates: { mtdStart, mtdEnd, today, yesterday, reportDate: dates.reportDate, monthName: dates.monthName },
     });
   } catch (error) {
     console.error('Finance API error:', error);
