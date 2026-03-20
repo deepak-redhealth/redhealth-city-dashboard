@@ -516,7 +516,7 @@ function HospitalSummary({ data }) {
   );
 }
 
-// ─── Agent Summary ───────────────────────────────────────
+// ─── Agent Summary ────────────────────────────────────────
 
 function AgentSummary({ data }) {
   const [sortBy, setSortBy] = useState('revenue');
@@ -716,7 +716,7 @@ function CityRow({ city }) {
             </div>
           </div>
 
-          <span className="text-gray-400 text-lg">{expanded ? '▲' : '▲'}</span>
+          <span className="text-gray-400 text-lg">{expanded ? '▲' : '▼'}</span>
         </div>
       </div>
 
@@ -729,7 +729,7 @@ function CityRow({ city }) {
                 <thead>
                   <tr className="text-left text-xs text-gray-400 uppercase">
                     <th className="pb-2">Metric</th>
-                    <th className="pb-2 text-right">MTD<}/th>
+                    <th className="pb-2 text-right">MTD</th>
                     <th className="pb-2 text-right">Today</th>
                     <th className="pb-2 text-right">Yesterday</th>
                   </tr>
