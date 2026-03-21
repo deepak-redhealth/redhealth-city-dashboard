@@ -1,10 +1,10 @@
 import { ORG_ID } from './constants';
 
 // ============================================================
-// CITYWISE FUNNEL QUERY â Locked Logic v8
+// CITYWISE FUNNEL QUERY - Locked Logic v8
 // MTD till today, compare today vs yesterday
 // Excludes Digital, Air Ambulance, Test orders
-// Revenue in Lakhs (paise Ã· 10,000,000)
+// Revenue in Lakhs (paise / 10,000,000)
 // ============================================================
 export function buildFunnelQuery(mtdStart, mtdEnd, today, yesterday) {
   return `
@@ -77,10 +77,10 @@ ORDER BY MTD_REV_BKD_L DESC NULLS LAST`;
 }
 
 // ============================================================
-// CITYWISE FINANCE QUERY â Locked Logic v8
+// CITYWISE FINANCE QUERY - Locked Logic v8
 // MTD till today, compare today vs yesterday
 // Excludes Digital, Air Ambulance (DEAD_BODY_AIR_CARGO included)
-// Revenue in Rupees (paise Ã· 100)
+// Revenue in Rupees (paise / 100)
 // ============================================================
 export function buildFinanceQuery(mtdStart, mtdEnd, today, yesterday) {
   return `
@@ -162,7 +162,7 @@ ORDER BY MTD_REV DESC NULLS LAST`;
 }
 
 // ============================================================
-// HOSPITAL-WISE FUNNEL QUERY â Locked Logic v8
+// HOSPITAL-WISE FUNNEL QUERY - Locked Logic v8
 // MTD till today, compare today vs yesterday
 // Groups by CITY + HOSPITAL (site name)
 // ============================================================
@@ -223,7 +223,7 @@ ORDER BY MTD_REV_BKD_L DESC NULLS LAST`;
 }
 
 // ============================================================
-// AGENT-WISE FUNNEL QUERY â Locked Logic v8
+// AGENT-WISE FUNNEL QUERY - Locked Logic v8
 // MTD till today, compare today vs yesterday
 // Groups by CITY + AGENT (booking creator email)
 // ============================================================
@@ -284,10 +284,18 @@ SELECT
       THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END),0)*100, 1) AS MTD_CANCEL_PCT,
   ROUND(SUM(CASE WHEN META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END)*100.0
     / NULLIF(SUM(CASE WHEN META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END),0), 1) AS MTD_BKG_CONV_PCT,
+  ROUND(SUM(CASE WHEN META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END)*100.0
+    / NULLIF(SUM(CASE WHEN META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END),0), 1) AS MTD_TRIP_COMP_PCT,
   SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS TODAY_ENQUIRY,
   SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS TODAY_BOOKING,
+  SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS TODAY_TRIP_COMP,
+  ROUND(SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
+    THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS TODAY_REV_BKD_L,
   SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS YDAY_ENQUIRY,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING
+  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING,
+  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS YDAY_TRIP_COMP,
+  ROUND(SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
+    THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS YDAY_REV_BKD_L
 FROM base
 GROUP BY CITY, AGENT_EMAIL, LOB
 HAVING MTD_BOOKING > 0
