@@ -720,7 +720,7 @@ function HospitalSummary({ data }) {
                 <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">T.Trips</th>
                 <th className="px-2 py-3 text-right bg-green-50/30">Y.Trips</th>
                 <th className="px-2 py-3 text-right bg-green-50/30">T.FinRev</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</td>
+                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</th>
                 <th className="px-3 py-3 text-center">Perf</th>
               </tr>
             </thead>
