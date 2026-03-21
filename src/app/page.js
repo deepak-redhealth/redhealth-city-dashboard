@@ -40,6 +40,24 @@ function perfTier(bookings, convPct, cancelPct) {
   return { label: 'Below Avg', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500' };
 }
 
+// ─── Date helpers ─────────────────────────────────────────────────
+function getISTToday() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().split('T')[0];
+}
+function getISTMonthStart() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-01`;
+}
+function getISTYesterday() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  ist.setDate(ist.getDate() - 1);
+  return ist.toISOString().split('T')[0];
+}
+
 // ─── Main Page ────────────────────────────────────────────
 export default function Dashboard() {
   const [zone, setZone] = useState('All');
@@ -53,6 +71,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Date filter state
+  const [customStart, setCustomStart] = useState(getISTMonthStart());
+  const [customEnd, setCustomEnd] = useState(getISTToday());
+  const [isCustomRange, setIsCustomRange] = useState(false);
+
   const zones = ['All', ...Object.keys(ZONE_CITY_MAP)];
 
   const visibleCities = useMemo(() => {
@@ -60,16 +83,31 @@ export default function Dashboard() {
     return ZONE_CITY_MAP[zone] || [];
   }, [zone]);
 
+  // Build query string for date params
+  const dateQueryString = useMemo(() => {
+    if (!isCustomRange) return '';
+    const params = new URLSearchParams();
+    params.set('start', customStart);
+    params.set('end', customEnd);
+    const endDate = new Date(customEnd + 'T00:00:00');
+    const yday = new Date(endDate);
+    yday.setDate(yday.getDate() - 1);
+    params.set('today', customEnd);
+    params.set('yesterday', yday.toISOString().split('T')[0]);
+    return '?' + params.toString();
+  }, [isCustomRange, customStart, customEnd]);
+
   // Fetch data
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const qs = dateQueryString;
       const [fRes, finRes, hospRes, agentRes] = await Promise.all([
-        fetch('/api/funnel'),
-        fetch('/api/finance'),
-        fetch('/api/hospital'),
-        fetch('/api/agent'),
+        fetch('/api/funnel' + qs),
+        fetch('/api/finance' + qs),
+        fetch('/api/hospital' + qs),
+        fetch('/api/agent' + qs),
       ]);
       if (!fRes.ok || !finRes.ok) throw new Error('API request failed');
       const fData = await fRes.json();
@@ -86,7 +124,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateQueryString]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -168,16 +206,65 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">RED.Health City Performance</h1>
               <p className="text-red-100 text-sm mt-1">
-                {dates ? `${dates.monthName} | MTD: ${dates.mtdStart} → ${dates.mtdEnd}` : 'Loading...'}
+                {dates ? `${dates.mtdStart} → ${dates.mtdEnd}` : 'Loading...'}
+                {isCustomRange && <span className="ml-2 px-1.5 py-0.5 bg-white/20 rounded text-xs">Custom</span>}
               </p>
             </div>
-            <button
-              onClick={fetchData}
-              disabled={loading}
-              className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition disabled:opacity-50"
-            >
-              {loading ? '⟳ Loading...' : '⟳ Refresh'}
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Date Range Picker */}
+              <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-3 py-1.5">
+                <label className="text-xs text-red-100 font-medium">From</label>
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => { setCustomStart(e.target.value); setIsCustomRange(true); }}
+                  className="bg-white/20 text-white text-sm rounded px-2 py-1 border border-white/30 focus:outline-none focus:border-white/60 [color-scheme:dark]"
+                />
+                <label className="text-xs text-red-100 font-medium ml-1">To</label>
+                <input
+                  type="date"
+                  value={customEnd}
+                  max={getISTToday()}
+                  onChange={(e) => { setCustomEnd(e.target.value); setIsCustomRange(true); }}
+                  className="bg-white/20 text-white text-sm rounded px-2 py-1 border border-white/30 focus:outline-none focus:border-white/60 [color-scheme:dark]"
+                />
+              </div>
+              {/* Quick presets */}
+              <div className="flex gap-1">
+                <button
+                  onClick={() => { setCustomStart(getISTMonthStart()); setCustomEnd(getISTToday()); setIsCustomRange(false); }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${!isCustomRange ? 'bg-white text-red-700' : 'bg-white/20 hover:bg-white/30'}`}
+                >MTD</button>
+                <button
+                  onClick={() => { setCustomStart(getISTYesterday()); setCustomEnd(getISTYesterday()); setIsCustomRange(true); }}
+                  className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium transition"
+                >Yesterday</button>
+                <button
+                  onClick={() => {
+                    const end = new Date(getISTToday() + 'T00:00:00');
+                    const start = new Date(end);
+                    start.setDate(start.getDate() - 6);
+                    setCustomStart(start.toISOString().split('T')[0]);
+                    setCustomEnd(getISTToday());
+                    setIsCustomRange(true);
+                  }}
+                  className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium transition"
+                >Last 7d</button>
+              </div>
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition disabled:opacity-50"
+              >
+                {loading ? '⟳ Loading...' : '⟳ Refresh'}
+              </button>
+            </div>
+          </div>
+          {/* Date basis info */}
+          <div className="flex gap-4 mt-2 text-xs text-red-200">
+            <span>Funnel / Hospital / Agent: by Order Created Date</span>
+            <span>|</span>
+            <span>Finance: by Delivery Date</span>
           </div>
         </div>
       </header>
