@@ -3,17 +3,17 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
 
-// ─── Helpers ──────────────────────────────────────────────
-const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '—';
-const fmtL = (n) => n != null ? `₹${Number(n).toFixed(2)}L` : '—';
-const fmtR = (n) => n != null ? `₹${fmt(n)}` : '—';
-const pct = (n) => n != null ? `${Number(n).toFixed(1)}%` : '—';
+// âââ Helpers ââââââââââââââââââââââââââââââââââââââââââââââ
+const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : 'â';
+const fmtL = (n) => n != null ? `â¹${Number(n).toFixed(2)}L` : 'â';
+const fmtR = (n) => n != null ? `â¹${fmt(n)}` : 'â';
+const pct = (n) => n != null ? `${Number(n).toFixed(1)}%` : 'â';
 const arrow = (curr, prev) => {
-  if (curr == null || prev == null) return { icon: '→', color: 'text-gray-400' };
+  if (curr == null || prev == null) return { icon: 'â', color: 'text-gray-400' };
   const c = Number(curr), p = Number(prev);
-  if (c > p) return { icon: '↑', color: 'text-green-700' };
-  if (c < p) return { icon: '↓', color: 'text-red-600' };
-  return { icon: '→', color: 'text-gray-400' };
+  if (c > p) return { icon: 'â', color: 'text-green-700' };
+  if (c < p) return { icon: 'â', color: 'text-red-600' };
+  return { icon: 'â', color: 'text-gray-400' };
 };
 const statusColor = (val, target, higherIsBetter = true) => {
   if (val == null) return 'text-gray-400';
@@ -40,7 +40,7 @@ function perfTier(bookings, convPct, cancelPct) {
   return { label: 'Below Avg', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500' };
 }
 
-// ─── Date helpers ─────────────────────────────────────────────────
+// âââ Date helpers âââââââââââââââââââââââââââââââââââââââââ
 function getISTToday() {
   const now = new Date();
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
@@ -58,7 +58,7 @@ function getISTYesterday() {
   return ist.toISOString().split('T')[0];
 }
 
-// ─── Main Page ────────────────────────────────────────────
+// âââ Main Page ââââââââââââââââââââââââââââââââââââââââââââ
 export default function Dashboard() {
   const [zone, setZone] = useState('All');
   const [selectedCities, setSelectedCities] = useState([]);
@@ -141,7 +141,7 @@ export default function Dashboard() {
         ...f,
         fin: finMap[f.CITY] || {},
         cityName: CITY_NAMES[f.CITY] || f.CITY,
-        zone: Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || '—',
+        zone: Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || 'â',
       }));
   }, [funnel, finance, visibleCities, selectedCities]);
 
@@ -196,7 +196,7 @@ export default function Dashboard() {
     { id: 'agent', label: 'Agent Summary' },
   ];
 
-  // ─── Render ─────────────────────────────────────────────
+  // âââ Render âââââââââââââââââââââââââââââââââââââââââââââ
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -206,7 +206,7 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">RED.Health City Performance</h1>
               <p className="text-red-100 text-sm mt-1">
-                {dates ? `${dates.mtdStart} → ${dates.mtdEnd}` : 'Loading...'}
+                {dates ? `${dates.mtdStart} â ${dates.mtdEnd}` : 'Loading...'}
                 {isCustomRange && <span className="ml-2 px-1.5 py-0.5 bg-white/20 rounded text-xs">Custom</span>}
               </p>
             </div>
@@ -256,7 +256,7 @@ export default function Dashboard() {
                 disabled={loading}
                 className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition disabled:opacity-50"
               >
-                {loading ? '⟳ Loading...' : '⟳ Refresh'}
+                {loading ? 'â³ Loading...' : 'â³ Refresh'}
               </button>
             </div>
           </div>
@@ -428,7 +428,7 @@ export default function Dashboard() {
   );
 }
 
-// ─── Components ───────────────────────────────────────────
+// âââ Components âââââââââââââââââââââââââââââââââââââââââââ
 
 function SummaryCard({ label, value, color = 'text-gray-900' }) {
   return (
@@ -466,7 +466,7 @@ function PerfBadge({ tier }) {
   );
 }
 
-// ─── Hospital Summary ─────────────────────────────────────
+// âââ Hospital Summary âââââââââââââââââââââââââââââââââââââ
 
 function HospitalSummary({ data }) {
   const [sortBy, setSortBy] = useState('revenue');
@@ -543,8 +543,8 @@ function HospitalSummary({ data }) {
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
+            <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10">
+              <tr>
                 <th className="px-4 py-3">Hospital</th>
                 <th className="px-3 py-3">City</th>
                 <th className="px-3 py-3 text-right">Enquiry</th>
@@ -562,7 +562,7 @@ function HospitalSummary({ data }) {
               {filtered.map((h, i) => {
                 const a = arrow(h.TODAY_BOOKING, h.YDAY_BOOKING);
                 return (
-                  <tr key={`${h.CITY}-${h.HOSPITAL}-${i}`} className={`${h.tier.bg} hover:bg-opacity-80 transition`}>
+                  <tr key={`${h.CITY}-${h.HOSPITAL}-${i}`} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition`}>
                     <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[200px] truncate" title={h.HOSPITAL}>{h.HOSPITAL}</td>
                     <td className="px-3 py-2.5 text-gray-600">{h.cityName}</td>
                     <td className="px-3 py-2.5 text-right">{fmt(h.MTD_ENQUIRY)}</td>
@@ -597,7 +597,7 @@ function HospitalSummary({ data }) {
   );
 }
 
-// ─── Agent Summary ────────────────────────────────────────
+// âââ Agent Summary ââââââââââââââââââââââââââââââââââââââââ
 
 function AgentSummary({ data }) {
   const [sortBy, setSortBy] = useState('revenue');
@@ -675,8 +675,8 @@ function AgentSummary({ data }) {
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
+            <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10">
+              <tr>
                 <th className="px-4 py-3">Agent</th>
                 <th className="px-3 py-3">City</th>
                 <th className="px-3 py-3">LOB</th>
@@ -695,7 +695,7 @@ function AgentSummary({ data }) {
               {filtered.map((a, i) => {
                 const ar = arrow(a.TODAY_BOOKING, a.YDAY_BOOKING);
                 return (
-                  <tr key={`${a.CITY}-${a.AGENT}-${i}`} className={`${a.tier.bg} hover:bg-opacity-80 transition`}>
+                  <tr key={`${a.CITY}-${a.AGENT}-${i}`} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition`}>
                     <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[200px] truncate" title={a.AGENT}>{a.agentShort}</td>
                     <td className="px-3 py-2.5 text-gray-600">{a.cityName}</td>
                     <td className="px-3 py-2.5">
@@ -735,7 +735,7 @@ function AgentSummary({ data }) {
   );
 }
 
-// ─── City Row (existing) ──────────────────────────────────
+// âââ City Row (redesigned with visual distinction) ââââââââ
 
 function CityRow({ city }) {
   const [expanded, setExpanded] = useState(false);
@@ -743,6 +743,7 @@ function CityRow({ city }) {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+      {/* Collapsed Header */}
       <div
         className="p-4 cursor-pointer hover:bg-gray-50 transition"
         onClick={() => setExpanded(!expanded)}
@@ -758,71 +759,75 @@ function CityRow({ city }) {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-6 text-sm">
-            <div className="text-center">
-              <div className="text-xs text-gray-400">Bookings</div>
-              <div className="font-semibold">{fmt(city.MTD_BOOKING)}</div>
+          {/* Collapsed metrics - grouped by section */}
+          <div className="hidden md:flex items-center gap-4 text-sm">
+            {/* Funnel section */}
+            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+              <MetricPill label="Bookings" value={fmt(city.MTD_BOOKING)} />
+              <MetricPill label="Rev" value={fmtL(city.MTD_REV_BKD_L)} />
+              <MetricPill
+                label="Cancel"
+                value={pct(city.MTD_CANCEL_PCT)}
+                color={statusColor(city.MTD_CANCEL_PCT, 12, false)}
+              />
             </div>
-            <div className="text-center">
-              <div className="text-xs text-gray-400">Rev (Booked)</div>
-              <div className="font-semibold">{fmtL(city.MTD_REV_BKD_L)}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-xs text-gray-400">Finance Rev</div>
-              <div className="font-semibold">{fmtR(fin.MTD_REV)}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-xs text-gray-400">Margin</div>
-              <div className={statusColor(fin.MTD_MARGIN_PCT, TARGETS.margin_pct)}>
-                {pct(fin.MTD_MARGIN_PCT)}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-xs text-gray-400">Own Veh</div>
-              <div className={statusColor(fin.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}>
-                {pct(fin.MTD_OWN_ROAD_PCT)}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-xs text-gray-400">DQR</div>
-              <div className={statusColor(fin.MTD_DQR_PCT, TARGETS.dqr_pct)}>
-                {pct(fin.MTD_DQR_PCT)}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-xs text-gray-400">Cancel</div>
-              <div className={statusColor(city.MTD_CANCEL_PCT, 12, false)}>
-                {pct(city.MTD_CANCEL_PCT)}
-              </div>
+
+            {/* Finance section */}
+            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+              <MetricPill label="Fin Rev" value={fmtR(fin.MTD_REV)} />
+              <MetricPill
+                label="Margin"
+                value={pct(fin.MTD_MARGIN_PCT)}
+                color={statusColor(fin.MTD_MARGIN_PCT, TARGETS.margin_pct)}
+              />
+              <MetricPill
+                label="DQR"
+                value={pct(fin.MTD_DQR_PCT)}
+                color={statusColor(fin.MTD_DQR_PCT, TARGETS.dqr_pct)}
+              />
+              <MetricPill
+                label="Own Veh"
+                value={pct(fin.MTD_OWN_ROAD_PCT)}
+                color={statusColor(fin.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}
+              />
             </div>
           </div>
 
-          <span className="text-gray-400 text-lg">{expanded ? '▲' : '▼'}</span>
+          <span className="text-gray-400 text-lg ml-4">{expanded ? 'â²' : 'â¼'}</span>
         </div>
       </div>
 
+      {/* Expanded Content */}
       {expanded && (
-        <div className="border-t px-4 pb-4">
-          <div className="grid md:grid-cols-2 gap-4 mt-4">
-            <div>
-              <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Funnel Performance</h4>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-gray-400 uppercase">
-                    <th className="pb-2">Metric</th>
-                    <th className="pb-2 text-right">MTD</th>
-                    <th className="pb-2 text-right">Today</th>
-                    <th className="pb-2 text-right">Yesterday</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  <FunnelRow label="Enquiries" mtd={city.MTD_ENQUIRY} today={city.TODAY_ENQUIRY} yday={city.YDAY_ENQUIRY} />
-                  <FunnelRow label="Bookings" mtd={city.MTD_BOOKING} today={city.TODAY_BOOKING} yday={city.YDAY_BOOKING} />
-                  <FunnelRow label="Completed" mtd={city.MTD_TRIP_COMP} today={city.TODAY_TRIP_COMP} yday={city.YDAY_TRIP_COMP} />
-                  <FunnelRow label="Rev Booked" mtd={fmtL(city.MTD_REV_BKD_L)} today={fmtL(city.TODAY_REV_BKD_L)} yday={fmtL(city.YDAY_REV_BKD_L)} raw />
-                </tbody>
-              </table>
-              <div className="grid grid-cols-3 gap-2 mt-3">
+        <div className="border-t px-6 pb-6 bg-gray-50">
+          <div className="grid lg:grid-cols-2 gap-6 mt-6">
+            {/* FUNNEL SECTION */}
+            <div className="border-l-4 border-blue-400 bg-blue-50 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                <h4 className="text-sm font-semibold text-blue-900">Funnel Performance</h4>
+              </div>
+
+              <div className="bg-white rounded-lg p-3 mb-4">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 font-medium uppercase tracking-wider border-b border-gray-200">
+                      <th className="text-left pb-2">Metric</th>
+                      <th className="text-right pb-2">MTD</th>
+                      <th className="text-right pb-2">Today</th>
+                      <th className="text-right pb-2">Yesterday</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <FunnelRow label="Enquiries" mtd={city.MTD_ENQUIRY} today={city.TODAY_ENQUIRY} yday={city.YDAY_ENQUIRY} />
+                    <FunnelRow label="Bookings" mtd={city.MTD_BOOKING} today={city.TODAY_BOOKING} yday={city.YDAY_BOOKING} />
+                    <FunnelRow label="Completed" mtd={city.MTD_TRIP_COMP} today={city.TODAY_TRIP_COMP} yday={city.YDAY_TRIP_COMP} />
+                    <FunnelRow label="Rev Booked" mtd={fmtL(city.MTD_REV_BKD_L)} today={fmtL(city.TODAY_REV_BKD_L)} yday={fmtL(city.YDAY_REV_BKD_L)} raw />
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
                 <MiniStat label="Conv %" value={pct(city.MTD_BKG_CONV_PCT)} />
                 <MiniStat label="Completion" value={pct(city.MTD_TRIP_COMP_PCT)} />
                 <MiniStat label="Cancel" value={pct(city.MTD_CANCEL_PCT)}
@@ -830,36 +835,44 @@ function CityRow({ city }) {
               </div>
             </div>
 
-            <div>
-              <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Finance (Accrual)</h4>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-gray-400 uppercase">
-                    <th className="pb-2">Metric</th>
-                    <th className="pb-2 text-right">MTD</th>
-                    <th className="pb-2 text-right">Today</th>
-                    <th className="pb-2 text-right">Yesterday</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  <FunnelRow label="Trips" mtd={fin.MTD_TRIPS_DELIVERED} today={fin.TODAY_TRIPS} yday={fin.YDAY_TRIPS} />
-                  <FunnelRow label="Revenue" mtd={fmtR(fin.MTD_REV)} today={fmtR(fin.TODAY_REV)} yday={fmtR(fin.YDAY_REV)} raw />
-                </tbody>
-              </table>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-                <MiniStat label="Margin"
+            {/* FINANCE SECTION */}
+            <div className="border-l-4 border-green-400 bg-green-50 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <h4 className="text-sm font-semibold text-green-900">Finance (Accrual)</h4>
+              </div>
+
+              <div className="bg-white rounded-lg p-3 mb-4">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-500 font-medium uppercase tracking-wider border-b border-gray-200">
+                      <th className="text-left pb-2">Metric</th>
+                      <th className="text-right pb-2">MTD</th>
+                      <th className="text-right pb-2">Today</th>
+                      <th className="text-right pb-2">Yesterday</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <FunnelRow label="Trips" mtd={fin.MTD_TRIPS_DELIVERED} today={fin.TODAY_TRIPS} yday={fin.YDAY_TRIPS} />
+                    <FunnelRow label="Revenue" mtd={fmtR(fin.MTD_REV)} today={fmtR(fin.TODAY_REV)} yday={fmtR(fin.YDAY_REV)} raw />
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <MiniStat label="Margin %"
                   value={pct(fin.MTD_MARGIN_PCT)}
                   color={statusColor(fin.MTD_MARGIN_PCT, TARGETS.margin_pct)}
-                  target="≥28%" />
-                <MiniStat label="DQR"
+                  target="28%" />
+                <MiniStat label="DQR %"
                   value={pct(fin.MTD_DQR_PCT)}
                   color={statusColor(fin.MTD_DQR_PCT, TARGETS.dqr_pct)}
-                  target="≥35%" />
-                <MiniStat label="Own Veh"
+                  target="35%" />
+                <MiniStat label="Own Vehicle %"
                   value={pct(fin.MTD_OWN_ROAD_PCT)}
                   color={statusColor(fin.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}
-                  target="≥55%" />
-                <MiniStat label="Road Rev" value={fmtR(fin.MTD_ROAD_REV)} />
+                  target="55%" />
+                <MiniStat label="Road Revenue" value={fmtR(fin.MTD_ROAD_REV)} />
               </div>
             </div>
           </div>
@@ -869,25 +882,35 @@ function CityRow({ city }) {
   );
 }
 
+function MetricPill({ label, value, color = 'text-gray-900' }) {
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="text-xs text-gray-500 mb-0.5">{label}</div>
+      <div className={`text-sm font-semibold ${color}`}>{value}</div>
+    </div>
+  );
+}
+
 function FunnelRow({ label, mtd, today, yday, raw = false }) {
   const a = raw ? { icon: '', color: '' } : arrow(today, yday);
   return (
     <tr>
-      <td className="py-1.5 text-gray-600">{label}</td>
-      <td className="py-1.5 text-right font-medium">{raw ? mtd : fmt(mtd)}</td>
-      <td className="py-1.5 text-right">
+      <td className="py-1.5 text-gray-700 text-xs">{label}</td>
+      <td className="py-1.5 text-right font-medium text-gray-900">{raw ? mtd : fmt(mtd)}</td>
+      <td className="py-1.5 text-right text-gray-600">
         {raw ? today : fmt(today)} <span className={`${a.color} text-xs`}>{a.icon}</span>
       </td>
-      <td className="py-1.5 text-right text-gray-400">{raw ? yday : fmt(yday)}</td>
+      <td className="py-1.5 text-right text-gray-400 text-xs">{raw ? yday : fmt(yday)}</td>
     </tr>
   );
 }
 
 function MiniStat({ label, value, color = 'text-gray-900', target = '' }) {
   return (
-    <div className="bg-gray-50 rounded-lg p-2">
-      <div className="text-xs text-gray-400">{label} {target && <span className="text-gray-300">({target})</span>}</div>
-      <div className={`text-sm font-bold ${color}`}>{value}</div>
+    <div className="bg-white rounded-lg p-2.5 text-center">
+      <div className="text-xs text-gray-600 font-medium">{label}</div>
+      {target && <div className="text-xs text-gray-400">{target}</div>}
+      <div className={`text-sm font-bold mt-1 ${color}`}>{value}</div>
     </div>
   );
 }
