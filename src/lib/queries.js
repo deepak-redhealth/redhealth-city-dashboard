@@ -171,7 +171,7 @@ export function buildHospitalQuery(mtdStart, mtdEnd, today, yesterday) {
 WITH base AS (
   SELECT
     UPPER(TRIM(n.CITY)) AS CITY,
-    COALESCE(NULLIF(TRIM(n.SITE_NAME),''), 'Unknown Hospital') AS HOSPITAL,
+    COALESCE(NULLIF(TRIM(n.NAME),''), 'Unknown Hospital') AS HOSPITAL,
     n.SITE_TYPE_DESC,
     CASE
       WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Stan Command'
