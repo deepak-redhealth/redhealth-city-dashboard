@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
+import { USERS, getUserByEmail, filterByUserCities, getUserOptions } from '@/lib/roles';
 
 // --- Helpers ---
 const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
@@ -78,12 +79,33 @@ export default function Dashboard() {
   const [customEnd, setCustomEnd] = useState(getISTToday());
   const [isCustomRange, setIsCustomRange] = useState(false);
 
+  // User/role filter state
+  const [currentUser, setCurrentUser] = useState(null);
+  const userOptions = getUserOptions();
+
+  // Read ?user= from URL on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const email = params.get('user');
+      if (email) {
+        const u = getUserByEmail(email);
+        if (u) setCurrentUser(u);
+      }
+    }
+  }, []);
+
   const zones = ['All', ...Object.keys(ZONE_CITY_MAP)];
 
   const visibleCities = useMemo(() => {
-    if (zone === 'All') return Object.values(ZONE_CITY_MAP).flat();
-    return ZONE_CITY_MAP[zone] || [];
-  }, [zone]);
+    let cities = zone === 'All' ? Object.values(ZONE_CITY_MAP).flat() : (ZONE_CITY_MAP[zone] || []);
+    // If user has role-based restriction, intersect with their allowed cities
+    if (currentUser && currentUser.cities) {
+      const allowed = new Set(currentUser.cities.map(c => c.toUpperCase()));
+      cities = cities.filter(c => allowed.has(c.toUpperCase()));
+    }
+    return cities;
+  }, [zone, currentUser]);
 
   // Build query string for date params
   const dateQueryString = useMemo(() => {
@@ -135,6 +157,24 @@ export default function Dashboard() {
   }, [dateQueryString]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Log dashboard access
+  useEffect(() => {
+    if (!loading && funnel && currentUser) {
+      const cities = currentUser.cities ? currentUser.cities.join(',') : 'ALL';
+      fetch('/api/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: currentUser.email,
+          userName: currentUser.name,
+          userRole: currentUser.role,
+          action: 'page_load',
+          citiesViewed: cities
+        })
+      }).catch(() => {});
+    }
+  }, [loading, funnel, currentUser]);
 
   // Merge funnel + finance by city, filter by zone
   const cityData = useMemo(() => {
@@ -271,6 +311,30 @@ export default function Dashboard() {
                   className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium transition"
                 >Last 7d</button>
               </div>
+              {/* User Selector */}
+              <select
+                value={currentUser?.email || ''}
+                onChange={(e) => {
+                  const u = getUserByEmail(e.target.value);
+                  setCurrentUser(u);
+                  setSelectedCities([]);
+                  // Update URL param
+                  if (typeof window !== 'undefined') {
+                    const url = new URL(window.location);
+                    if (u) url.searchParams.set('user', u.email);
+                    else url.searchParams.delete('user');
+                    window.history.replaceState({}, '', url);
+                  }
+                }}
+                className="bg-white/20 text-white text-sm rounded-lg px-3 py-2 border border-white/30 focus:outline-none focus:border-white/60 [color-scheme:dark]"
+              >
+                <option value="">All Cities (No Filter)</option>
+                {userOptions.map(u => (
+                  <option key={u.email} value={u.email}>
+                    {u.name} ({u.role}) - {u.cityCount} cities
+                  </option>
+                ))}
+              </select>
               <button
                 onClick={fetchData}
                 disabled={loading}
@@ -280,13 +344,21 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
-          {/* Date basis info + legend */}
+          {/* Date basis info + legend + user badge */}
           <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-red-200">
             <span className="px-1.5 py-0.5 bg-blue-400/30 rounded font-semibold text-white">F</span>
             <span>Funnel (by Order Created)</span>
             <span>|</span>
             <span className="px-1.5 py-0.5 bg-green-400/30 rounded font-semibold text-white">Fin</span>
             <span>Finance (by Delivery Date)</span>
+            {currentUser && (
+              <>
+                <span>|</span>
+                <span className="px-2 py-0.5 bg-yellow-400/30 rounded font-semibold text-white">
+                  {currentUser.name} \u2014 {currentUser.role} ({currentUser.cities ? currentUser.cities.length + ' cities' : 'All'})
+                </span>
+              </>
+            )}
           </div>
         </div>
       </header>
