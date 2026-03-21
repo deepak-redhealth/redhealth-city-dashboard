@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
-import { USERS, getUserByEmail, filterByUserCities, getUserOptions } from '@/lib/roles';
 
 // --- Helpers ---
 const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
@@ -61,6 +61,7 @@ function getISTYesterday() {
 
 // --- Main Page ---
 export default function Dashboard() {
+  const router = useRouter();
   const [zone, setZone] = useState('All');
   const [selectedCities, setSelectedCities] = useState([]);
   const [activeTab, setActiveTab] = useState('city'); // city | hospital | agent
@@ -79,29 +80,36 @@ export default function Dashboard() {
   const [customEnd, setCustomEnd] = useState(getISTToday());
   const [isCustomRange, setIsCustomRange] = useState(false);
 
-  // User/role filter state
-  const [currentUser, setCurrentUser] = useState(null);
-  const userOptions = getUserOptions();
+  // Auth state
+  const [authUser, setAuthUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [sessionToken, setSessionToken] = useState('');
 
-  // Read ?user= from URL on mount
+  // Auth check on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const email = params.get('user');
-      if (email) {
-        const u = getUserByEmail(email);
-        if (u) setCurrentUser(u);
-      }
-    }
-  }, []);
+    const token = typeof window !== 'undefined' ? localStorage.getItem('dash_token') : null;
+    if (!token) { router.push('/login'); return; }
+    setSessionToken(token);
+    fetch('/api/auth?token=' + token)
+      .then(r => r.json())
+      .then(d => {
+        if (!d.authenticated) { localStorage.removeItem('dash_token'); router.push('/login'); return; }
+        setAuthUser(d.user);
+        setAuthChecked(true);
+      })
+      .catch(() => { router.push('/login'); });
+  }, [router]);
+
+  // User/role filter state (from auth, replaces old roles.js)
+  const currentUser = authUser;
 
   const zones = ['All', ...Object.keys(ZONE_CITY_MAP)];
 
   const visibleCities = useMemo(() => {
     let cities = zone === 'All' ? Object.values(ZONE_CITY_MAP).flat() : (ZONE_CITY_MAP[zone] || []);
     // If user has role-based restriction, intersect with their allowed cities
-    if (currentUser && currentUser.cities) {
-      const allowed = new Set(currentUser.cities.map(c => c.toUpperCase()));
+    if (currentUser && currentUser.allowedCities) {
+      const allowed = new Set(currentUser.allowedCities.map(c => c.toUpperCase()));
       cities = cities.filter(c => allowed.has(c.toUpperCase()));
     }
     return cities;
@@ -121,20 +129,30 @@ export default function Dashboard() {
     return '?' + params.toString();
   }, [isCustomRange, customStart, customEnd]);
 
-  // Fetch data
+  // Fetch data via proxy endpoint
   const fetchData = useCallback(async () => {
+    if (!sessionToken) return;
     setLoading(true);
     setError(null);
     try {
       const qs = dateQueryString;
+      const sep = qs ? '&' : '?';
+      const base = qs ? '/api/data' + qs + '&' : '/api/data?';
+      const hdrs = { 'x-session-token': sessionToken };
       const [fRes, finRes, hospRes, agentRes, hospFinRes, agentFinRes] = await Promise.all([
-        fetch('/api/funnel' + qs),
-        fetch('/api/finance' + qs),
-        fetch('/api/hospital' + qs),
-        fetch('/api/agent' + qs),
-        fetch('/api/hospital-finance' + qs),
-        fetch('/api/agent-finance' + qs),
+        fetch(base + 'type=funnel', { headers: hdrs }),
+        fetch(base + 'type=finance', { headers: hdrs }),
+        fetch(base + 'type=hospital', { headers: hdrs }),
+        fetch(base + 'type=agent', { headers: hdrs }),
+        fetch(base + 'type=hospital-finance', { headers: hdrs }),
+        fetch(base + 'type=agent-finance', { headers: hdrs }),
       ]);
+      // If any return 401, redirect to login
+      if (fRes.status === 401 || finRes.status === 401) {
+        localStorage.removeItem('dash_token');
+        router.push('/login');
+        return;
+      }
       if (!fRes.ok || !finRes.ok) throw new Error('API request failed');
       const fData = await fRes.json();
       const finData = await finRes.json();
@@ -154,14 +172,14 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [dateQueryString]);
+  }, [dateQueryString, sessionToken, router]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { if (authChecked && sessionToken) fetchData(); }, [fetchData, authChecked, sessionToken]);
 
   // Log dashboard access
   useEffect(() => {
     if (!loading && funnel && currentUser) {
-      const cities = currentUser.cities ? currentUser.cities.join(',') : 'ALL';
+      const cities = currentUser.allowedCities ? currentUser.allowedCities.join(',') : 'ALL';
       fetch('/api/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -256,6 +274,20 @@ export default function Dashboard() {
     { id: 'agent', label: 'Agent Summary' },
   ];
 
+  // --- Auth loading screen ---
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 bg-red-600 rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <span className="text-white text-xl font-bold">R</span>
+          </div>
+          <p className="text-gray-500 text-sm">Authenticating...</p>
+        </div>
+      </div>
+    );
+  }
+
   // --- Render ---
   return (
     <div className="min-h-screen bg-gray-50">
@@ -311,30 +343,29 @@ export default function Dashboard() {
                   className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium transition"
                 >Last 7d</button>
               </div>
-              {/* User Selector */}
-              <select
-                value={currentUser?.email || ''}
-                onChange={(e) => {
-                  const u = getUserByEmail(e.target.value);
-                  setCurrentUser(u);
-                  setSelectedCities([]);
-                  // Update URL param
-                  if (typeof window !== 'undefined') {
-                    const url = new URL(window.location);
-                    if (u) url.searchParams.set('user', u.email);
-                    else url.searchParams.delete('user');
-                    window.history.replaceState({}, '', url);
-                  }
-                }}
-                className="bg-white/20 text-white text-sm rounded-lg px-3 py-2 border border-white/30 focus:outline-none focus:border-white/60 [color-scheme:dark]"
-              >
-                <option value="">All Cities (No Filter)</option>
-                {userOptions.map(u => (
-                  <option key={u.email} value={u.email}>
-                    {u.name} ({u.role}) - {u.cityCount} cities
-                  </option>
-                ))}
-              </select>
+              {/* Auth User Info */}
+              {currentUser && (
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium">
+                    {currentUser.name} ({currentUser.role.toUpperCase()})
+                  </span>
+                  {currentUser.role === 'admin' && (
+                    <button onClick={() => router.push('/admin')}
+                      className="px-3 py-1.5 bg-yellow-500/30 hover:bg-yellow-500/50 rounded-lg text-xs font-medium transition">
+                      Admin
+                    </button>
+                  )}
+                  <button onClick={() => {
+                    fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'logout', token: sessionToken }) });
+                    localStorage.removeItem('dash_token');
+                    localStorage.removeItem('dash_user');
+                    router.push('/login');
+                  }} className="px-3 py-1.5 bg-red-500/30 hover:bg-red-500/50 rounded-lg text-xs font-medium transition">
+                    Logout
+                  </button>
+                </div>
+              )}
               <button
                 onClick={fetchData}
                 disabled={loading}
@@ -355,7 +386,7 @@ export default function Dashboard() {
               <>
                 <span>|</span>
                 <span className="px-2 py-0.5 bg-yellow-400/30 rounded font-semibold text-white">
-                  {currentUser.name} \u2014 {currentUser.role} ({currentUser.cities ? currentUser.cities.length + ' cities' : 'All'})
+                  {currentUser.name} \u2014 {currentUser.role.toUpperCase()} ({currentUser.allowedCities ? currentUser.allowedCities.length + ' cities' : 'All'})
                 </span>
               </>
             )}
@@ -522,7 +553,7 @@ export default function Dashboard() {
       </main>
 
       <footer className="text-center py-6 text-xs text-gray-400">
-        RED.Health City Dashboard | Data: BLADE.CORE (Snowflake) | Excludes Digital LOB
+        RED.Health City Dashboard | Data: BLADE.CORE (Snowflake) | Excludes Digital LOC
       </footer>
     </div>
   );
@@ -689,7 +720,7 @@ function HospitalSummary({ data }) {
                 <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">T.Trips</th>
                 <th className="px-2 py-3 text-right bg-green-50/30">Y.Trips</th>
                 <th className="px-2 py-3 text-right bg-green-50/30">T.FinRev</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</td>
                 <th className="px-3 py-3 text-center">Perf</th>
               </tr>
             </thead>
@@ -885,7 +916,7 @@ function AgentSummary({ data }) {
                     <td className="px-3 py-2.5 text-gray-600">{a.cityName}</td>
                     <td className="px-3 py-2.5">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${a.LOB === 'Hospital' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                        {a.LOB}
+                        {a.LOC}
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-right border-l border-blue-100">{fmt(a.MTD_ENQUIRY)}</td>
