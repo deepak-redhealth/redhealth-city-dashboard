@@ -1,4 +1,4 @@
-himport { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/snowflake';
 import { buildAgentFinanceQuery } from '@/lib/queries';
 import { getDateRange } from '@/lib/constants';
