@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
 
 // --- Helpers ---
-const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
-const fmtL = (n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014';
-const fmtR = (n) => n != null ? '\u20B9' + fmt(n) : '\u2014';
-const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '\u2014';
+const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '—';
+const fmtL = (n) => n != null ? '₹' + Number(n).toFixed(2) + 'L' : '—';
+const fmtR = (n) => n != null ? '₹' + fmt(n) : '—';
+const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '—';
 const arrow = (curr, prev) => {
-  if (curr == null || prev == null) return { icon: '\u2192', color: 'text-gray-400' };
+  if (curr == null || prev == null) return { icon: '→', color: 'text-gray-400' };
   const c = Number(curr), p = Number(prev);
-  if (c > p) return { icon: '\u2191', color: 'text-green-700' };
-  if (c < p) return { icon: '\u2193', color: 'text-red-600' };
-  return { icon: '\u2192', color: 'text-gray-400' };
+  if (c > p) return { icon: '↑', color: 'text-green-700' };
+  if (c < p) return { icon: '↓', color: 'text-red-600' };
+  return { icon: '→', color: 'text-gray-400' };
 };
 const statusColor = (val, target, higherIsBetter = true) => {
   if (val == null) return 'text-gray-400';
@@ -605,11 +605,82 @@ function PerfBadge({ tier }) {
   );
 }
 
+// --- Multi-select filter dropdown with search ---
+function MultiSelectFilter({ label, options, selected, onChange, width = 'w-48' }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = { current: null };
+
+  const filteredOptions = useMemo(() => {
+    if (!search) return options;
+    const q = search.toLowerCase();
+    return options.filter(o => o.toLowerCase().includes(q));
+  }, [options, search]);
+
+  const toggle = (val) => {
+    onChange(selected.includes(val) ? selected.filter(v => v !== val) : [...selected, val]);
+  };
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition
+          ${selected.length > 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+      >
+        {label}
+        {selected.length > 0 && (
+          <span className="bg-red-600 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">{selected.length}</span>
+        )}
+        <span className="text-[10px] ml-0.5">{open ? '\u25B2' : '\u25BC'}</span>
+      </button>
+      {open && (
+        <div className={`absolute z-50 mt-1 ${width} bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 flex flex-col`}>
+          <div className="p-2 border-b">
+            <input
+              type="text"
+              placeholder={`Search ${label.toLowerCase()}...`}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-red-400"
+              autoFocus
+            />
+          </div>
+          <div className="overflow-y-auto flex-1 p-1">
+            {filteredOptions.length === 0 && <div className="px-2 py-1.5 text-xs text-gray-400">No matches</div>}
+            {filteredOptions.map(opt => (
+              <label key={opt} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={selected.includes(opt)}
+                  onChange={() => toggle(opt)}
+                  className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                <span className="truncate">{opt}</span>
+              </label>
+            ))}
+          </div>
+          {selected.length > 0 && (
+            <div className="p-2 border-t">
+              <button onClick={() => { onChange([]); setSearch(''); }} className="w-full text-xs text-red-600 hover:text-red-700 font-medium">
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {open && <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setSearch(''); }} />}
+    </div>
+  );
+}
+
 // --- Hospital Summary ---
 
 function HospitalSummary({ data }) {
   const [sortBy, setSortBy] = useState('revenue');
   const [filterTier, setFilterTier] = useState('all');
+  const [filterHospitals, setFilterHospitals] = useState([]);
+  const [filterCities, setFilterCities] = useState([]);
 
   const processed = useMemo(() => {
     return data.map(h => ({
@@ -619,10 +690,20 @@ function HospitalSummary({ data }) {
     }));
   }, [data]);
 
+  // Unique hospital names and cities for multi-select filters
+  const hospitalNames = useMemo(() => [...new Set(processed.map(h => h.HOSPITAL))].sort(), [processed]);
+  const cityNames = useMemo(() => [...new Set(processed.map(h => h.cityName))].sort(), [processed]);
+
   const filtered = useMemo(() => {
     let items = [...processed];
     if (filterTier !== 'all') {
       items = items.filter(h => h.tier.label === filterTier);
+    }
+    if (filterHospitals.length > 0) {
+      items = items.filter(h => filterHospitals.includes(h.HOSPITAL));
+    }
+    if (filterCities.length > 0) {
+      items = items.filter(h => filterCities.includes(h.cityName));
     }
     items.sort((a, b) => {
       if (sortBy === 'revenue') return (Number(b.MTD_REV_BKD_L) || 0) - (Number(a.MTD_REV_BKD_L) || 0);
@@ -631,13 +712,15 @@ function HospitalSummary({ data }) {
       return 0;
     });
     return items;
-  }, [processed, sortBy, filterTier]);
+  }, [processed, sortBy, filterTier, filterHospitals, filterCities]);
 
   const tierCounts = useMemo(() => {
     const counts = { Good: 0, Average: 0, 'Below Avg': 0 };
     processed.forEach(h => { counts[h.tier.label] = (counts[h.tier.label] || 0) + 1; });
     return counts;
   }, [processed]);
+
+  const hasActiveFilters = filterTier !== 'all' || filterHospitals.length > 0 || filterCities.length > 0;
 
   return (
     <div>
@@ -660,8 +743,8 @@ function HospitalSummary({ data }) {
         </div>
       </div>
 
-      {/* Sort controls */}
-      <div className="flex items-center gap-2 mb-4">
+      {/* Sort + Filter controls */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <span className="text-xs text-gray-500 font-medium">Sort by:</span>
         {['revenue', 'bookings', 'conversion'].map(s => (
           <button key={s} onClick={() => setSortBy(s)}
@@ -670,10 +753,14 @@ function HospitalSummary({ data }) {
             {s.charAt(0).toUpperCase() + s.slice(1)}
           </button>
         ))}
-        {filterTier !== 'all' && (
-          <button onClick={() => setFilterTier('all')}
+        <span className="mx-1 text-gray-300">|</span>
+        <span className="text-xs text-gray-500 font-medium">Filter:</span>
+        <MultiSelectFilter label="Hospital" options={hospitalNames} selected={filterHospitals} onChange={setFilterHospitals} width="w-64" />
+        <MultiSelectFilter label="City" options={cityNames} selected={filterCities} onChange={setFilterCities} />
+        {hasActiveFilters && (
+          <button onClick={() => { setFilterTier('all'); setFilterHospitals([]); setFilterCities([]); }}
             className="ml-2 px-3 py-1 rounded-full text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100">
-            Clear filter
+            Clear all filters
           </button>
         )}
       </div>
@@ -690,9 +777,9 @@ function HospitalSummary({ data }) {
             <span className="text-xs text-green-700 font-medium">Finance</span>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-sm whitespace-nowrap">
-            <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10">
+            <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
               <tr>
                 <th className="px-4 py-3 sticky left-0 bg-gray-50 z-20">Hospital</th>
                 <th className="px-3 py-3">City</th>
@@ -790,6 +877,9 @@ function HospitalSummary({ data }) {
 function AgentSummary({ data }) {
   const [sortBy, setSortBy] = useState('revenue');
   const [filterTier, setFilterTier] = useState('all');
+  const [filterAgents, setFilterAgents] = useState([]);
+  const [filterCities, setFilterCities] = useState([]);
+  const [filterLOBs, setFilterLOBs] = useState([]);
 
   const processed = useMemo(() => {
     return data.map(a => ({
@@ -800,10 +890,24 @@ function AgentSummary({ data }) {
     }));
   }, [data]);
 
+  // Unique values for multi-select filters
+  const agentNames = useMemo(() => [...new Set(processed.map(a => a.agentShort))].sort(), [processed]);
+  const cityNames = useMemo(() => [...new Set(processed.map(a => a.cityName))].sort(), [processed]);
+  const lobNames = useMemo(() => [...new Set(processed.map(a => a.LOB).filter(Boolean))].sort(), [processed]);
+
   const filtered = useMemo(() => {
     let items = [...processed];
     if (filterTier !== 'all') {
       items = items.filter(a => a.tier.label === filterTier);
+    }
+    if (filterAgents.length > 0) {
+      items = items.filter(a => filterAgents.includes(a.agentShort));
+    }
+    if (filterCities.length > 0) {
+      items = items.filter(a => filterCities.includes(a.cityName));
+    }
+    if (filterLOBs.length > 0) {
+      items = items.filter(a => filterLOBs.includes(a.LOB));
     }
     items.sort((a, b) => {
       if (sortBy === 'revenue') return (Number(b.MTD_REV_BKD_L) || 0) - (Number(a.MTD_REV_BKD_L) || 0);
@@ -812,13 +916,15 @@ function AgentSummary({ data }) {
       return 0;
     });
     return items;
-  }, [processed, sortBy, filterTier]);
+  }, [processed, sortBy, filterTier, filterAgents, filterCities, filterLOBs]);
 
   const tierCounts = useMemo(() => {
     const counts = { Good: 0, Average: 0, 'Below Avg': 0 };
     processed.forEach(a => { counts[a.tier.label] = (counts[a.tier.label] || 0) + 1; });
     return counts;
   }, [processed]);
+
+  const hasActiveFilters = filterTier !== 'all' || filterAgents.length > 0 || filterCities.length > 0 || filterLOBs.length > 0;
 
   return (
     <div>
@@ -841,8 +947,8 @@ function AgentSummary({ data }) {
         </div>
       </div>
 
-      {/* Sort controls */}
-      <div className="flex items-center gap-2 mb-4">
+      {/* Sort + Filter controls */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <span className="text-xs text-gray-500 font-medium">Sort by:</span>
         {['revenue', 'bookings', 'conversion'].map(s => (
           <button key={s} onClick={() => setSortBy(s)}
@@ -851,10 +957,15 @@ function AgentSummary({ data }) {
             {s.charAt(0).toUpperCase() + s.slice(1)}
           </button>
         ))}
-        {filterTier !== 'all' && (
-          <button onClick={() => setFilterTier('all')}
+        <span className="mx-1 text-gray-300">|</span>
+        <span className="text-xs text-gray-500 font-medium">Filter:</span>
+        <MultiSelectFilter label="Agent" options={agentNames} selected={filterAgents} onChange={setFilterAgents} width="w-64" />
+        <MultiSelectFilter label="City" options={cityNames} selected={filterCities} onChange={setFilterCities} />
+        <MultiSelectFilter label="LOB" options={lobNames} selected={filterLOBs} onChange={setFilterLOBs} width="w-40" />
+        {hasActiveFilters && (
+          <button onClick={() => { setFilterTier('all'); setFilterAgents([]); setFilterCities([]); setFilterLOBs([]); }}
             className="ml-2 px-3 py-1 rounded-full text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100">
-            Clear filter
+            Clear all filters
           </button>
         )}
       </div>
@@ -871,9 +982,9 @@ function AgentSummary({ data }) {
             <span className="text-xs text-green-700 font-medium">Finance</span>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-sm whitespace-nowrap">
-            <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10">
+            <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
               <tr>
                 <th className="px-4 py-3 sticky left-0 bg-gray-50 z-20">Agent</th>
                 <th className="px-3 py-3">City</th>
@@ -1032,7 +1143,7 @@ function CityRow({ city }) {
             </div>
           </div>
 
-          <span className="text-gray-400 text-lg ml-4">{expanded ? '\u25B2' : '\u25BC'}</span>
+          <span className="text-gray-400 text-lg ml-4">{expanded ? '▲' : '▼'}</span>
         </div>
       </div>
 
