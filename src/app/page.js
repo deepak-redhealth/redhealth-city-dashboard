@@ -3,17 +3,17 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
 
-// âââ Helpers ââââââââââââââââââââââââââââââââââââââââââââââ
-const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : 'â';
-const fmtL = (n) => n != null ? `â¹${Number(n).toFixed(2)}L` : 'â';
-const fmtR = (n) => n != null ? `â¹${fmt(n)}` : 'â';
-const pct = (n) => n != null ? `${Number(n).toFixed(1)}%` : 'â';
+// --- Helpers ---
+const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
+const fmtL = (n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014';
+const fmtR = (n) => n != null ? '\u20B9' + fmt(n) : '\u2014';
+const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '\u2014';
 const arrow = (curr, prev) => {
-  if (curr == null || prev == null) return { icon: 'â', color: 'text-gray-400' };
+  if (curr == null || prev == null) return { icon: '\u2192', color: 'text-gray-400' };
   const c = Number(curr), p = Number(prev);
-  if (c > p) return { icon: 'â', color: 'text-green-700' };
-  if (c < p) return { icon: 'â', color: 'text-red-600' };
-  return { icon: 'â', color: 'text-gray-400' };
+  if (c > p) return { icon: '\u2191', color: 'text-green-700' };
+  if (c < p) return { icon: '\u2193', color: 'text-red-600' };
+  return { icon: '\u2192', color: 'text-gray-400' };
 };
 const statusColor = (val, target, higherIsBetter = true) => {
   if (val == null) return 'text-gray-400';
@@ -40,7 +40,7 @@ function perfTier(bookings, convPct, cancelPct) {
   return { label: 'Below Avg', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500' };
 }
 
-// âââ Date helpers âââââââââââââââââââââââââââââââââââââââââ
+// --- Date helpers ---
 function getISTToday() {
   const now = new Date();
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
@@ -58,7 +58,7 @@ function getISTYesterday() {
   return ist.toISOString().split('T')[0];
 }
 
-// âââ Main Page ââââââââââââââââââââââââââââââââââââââââââââ
+// --- Main Page ---
 export default function Dashboard() {
   const [zone, setZone] = useState('All');
   const [selectedCities, setSelectedCities] = useState([]);
@@ -66,7 +66,9 @@ export default function Dashboard() {
   const [funnel, setFunnel] = useState(null);
   const [finance, setFinance] = useState(null);
   const [hospitals, setHospitals] = useState(null);
+  const [hospitalFin, setHospitalFin] = useState(null);
   const [agents, setAgents] = useState(null);
+  const [agentFin, setAgentFin] = useState(null);
   const [dates, setDates] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -103,21 +105,27 @@ export default function Dashboard() {
     setError(null);
     try {
       const qs = dateQueryString;
-      const [fRes, finRes, hospRes, agentRes] = await Promise.all([
+      const [fRes, finRes, hospRes, agentRes, hospFinRes, agentFinRes] = await Promise.all([
         fetch('/api/funnel' + qs),
         fetch('/api/finance' + qs),
         fetch('/api/hospital' + qs),
         fetch('/api/agent' + qs),
+        fetch('/api/hospital-finance' + qs),
+        fetch('/api/agent-finance' + qs),
       ]);
       if (!fRes.ok || !finRes.ok) throw new Error('API request failed');
       const fData = await fRes.json();
       const finData = await finRes.json();
       const hospData = hospRes.ok ? await hospRes.json() : { data: [] };
       const agentData = agentRes.ok ? await agentRes.json() : { data: [] };
+      const hospFinData = hospFinRes.ok ? await hospFinRes.json() : { data: [] };
+      const agentFinData = agentFinRes.ok ? await agentFinRes.json() : { data: [] };
       setFunnel(fData.data);
       setFinance(finData.data);
       setHospitals(hospData.data || []);
+      setHospitalFin(hospFinData.data || []);
       setAgents(agentData.data || []);
+      setAgentFin(agentFinData.data || []);
       setDates(fData.dates);
     } catch (e) {
       setError(e.message);
@@ -141,25 +149,37 @@ export default function Dashboard() {
         ...f,
         fin: finMap[f.CITY] || {},
         cityName: CITY_NAMES[f.CITY] || f.CITY,
-        zone: Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || 'â',
+        zone: Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || '\u2014',
       }));
   }, [funnel, finance, visibleCities, selectedCities]);
 
-  // Filtered hospital data
+  // Filtered hospital data with finance merge
   const hospitalData = useMemo(() => {
     if (!hospitals) return [];
+    const finMap = {};
+    (hospitalFin || []).forEach(r => {
+      const key = `${r.CITY}||${r.HOSPITAL}`;
+      finMap[key] = r;
+    });
     return hospitals
       .filter(h => visibleCities.includes(h.CITY))
-      .filter(h => selectedCities.length === 0 || selectedCities.includes(h.CITY));
-  }, [hospitals, visibleCities, selectedCities]);
+      .filter(h => selectedCities.length === 0 || selectedCities.includes(h.CITY))
+      .map(h => ({ ...h, fin: finMap[`${h.CITY}||${h.HOSPITAL}`] || {} }));
+  }, [hospitals, hospitalFin, visibleCities, selectedCities]);
 
-  // Filtered agent data
+  // Filtered agent data with finance merge
   const agentData = useMemo(() => {
     if (!agents) return [];
+    const finMap = {};
+    (agentFin || []).forEach(r => {
+      const key = `${r.CITY}||${r.AGENT}||${r.LOB}`;
+      finMap[key] = r;
+    });
     return agents
       .filter(a => visibleCities.includes(a.CITY))
-      .filter(a => selectedCities.length === 0 || selectedCities.includes(a.CITY));
-  }, [agents, visibleCities, selectedCities]);
+      .filter(a => selectedCities.length === 0 || selectedCities.includes(a.CITY))
+      .map(a => ({ ...a, fin: finMap[`${a.CITY}||${a.AGENT}||${a.LOB}`] || {} }));
+  }, [agents, agentFin, visibleCities, selectedCities]);
 
   // Aggregated totals
   const totals = useMemo(() => {
@@ -196,7 +216,7 @@ export default function Dashboard() {
     { id: 'agent', label: 'Agent Summary' },
   ];
 
-  // âââ Render âââââââââââââââââââââââââââââââââââââââââââââ
+  // --- Render ---
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -206,7 +226,7 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">RED.Health City Performance</h1>
               <p className="text-red-100 text-sm mt-1">
-                {dates ? `${dates.mtdStart} â ${dates.mtdEnd}` : 'Loading...'}
+                {dates ? `${dates.mtdStart} \u2192 ${dates.mtdEnd}` : 'Loading...'}
                 {isCustomRange && <span className="ml-2 px-1.5 py-0.5 bg-white/20 rounded text-xs">Custom</span>}
               </p>
             </div>
@@ -256,15 +276,17 @@ export default function Dashboard() {
                 disabled={loading}
                 className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition disabled:opacity-50"
               >
-                {loading ? 'â³ Loading...' : 'â³ Refresh'}
+                {loading ? '\u27F3 Loading...' : '\u27F3 Refresh'}
               </button>
             </div>
           </div>
-          {/* Date basis info */}
-          <div className="flex gap-4 mt-2 text-xs text-red-200">
-            <span>Funnel / Hospital / Agent: by Order Created Date</span>
+          {/* Date basis info + legend */}
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-red-200">
+            <span className="px-1.5 py-0.5 bg-blue-400/30 rounded font-semibold text-white">F</span>
+            <span>Funnel (by Order Created)</span>
             <span>|</span>
-            <span>Finance: by Delivery Date</span>
+            <span className="px-1.5 py-0.5 bg-green-400/30 rounded font-semibold text-white">Fin</span>
+            <span>Finance (by Delivery Date)</span>
           </div>
         </div>
       </header>
@@ -332,19 +354,21 @@ export default function Dashboard() {
             {/* Aggregate Summary Cards */}
             {totals && (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
-                <SummaryCard label="MTD Bookings" value={fmt(totals.booking)} />
-                <SummaryCard label="MTD Completed" value={fmt(totals.tripComp)} />
-                <SummaryCard label="Revenue (Booked)" value={fmtL(totals.revL)} />
-                <SummaryCard label="Finance Revenue" value={fmtR(totals.finRev)} />
+                <SummaryCard label="MTD Bookings" value={fmt(totals.booking)} source="F" />
+                <SummaryCard label="MTD Completed" value={fmt(totals.tripComp)} source="F" />
+                <SummaryCard label="Revenue (Booked)" value={fmtL(totals.revL)} source="F" />
+                <SummaryCard label="Finance Revenue" value={fmtR(totals.finRev)} source="Fin" />
                 <SummaryCard
                   label="Margin %"
                   value={pct(totals.marginPct)}
                   color={statusColor(totals.marginPct, TARGETS.margin_pct)}
+                  source="Fin"
                 />
                 <SummaryCard
                   label="Own Vehicle %"
                   value={pct(totals.ownRoadPct)}
                   color={statusColor(totals.ownRoadPct, TARGETS.own_vehicle_pct)}
+                  source="Fin"
                 />
               </div>
             )}
@@ -357,17 +381,20 @@ export default function Dashboard() {
                   <CompareCell
                     label="Trips Delivered"
                     curr={totals.todayTrips} prev={totals.ydayTrips}
+                    source="Fin"
                   />
                   <CompareCell
-                    label="Finance Revenue"
+                    label="Revenue"
                     curr={totals.todayRev} prev={totals.ydayRev}
                     formatter={fmtR}
+                    source="Fin"
                   />
                   <CompareCell
                     label="DQR %"
                     curr={totals.dqrPct} prev={null}
                     formatter={pct} single
                     color={statusColor(totals.dqrPct, TARGETS.dqr_pct)}
+                    source="Fin"
                   />
                   <CompareCell
                     label="Cancel %"
@@ -375,6 +402,7 @@ export default function Dashboard() {
                     prev={null}
                     formatter={pct} single
                     color={statusColor(totals.revL > 0 ? (totals.canL / totals.revL * 100) : null, 12, false)}
+                    source="F"
                   />
                 </div>
               </div>
@@ -428,22 +456,30 @@ export default function Dashboard() {
   );
 }
 
-// âââ Components âââââââââââââââââââââââââââââââââââââââââââ
+// --- Components ---
 
-function SummaryCard({ label, value, color = 'text-gray-900' }) {
+function SummaryCard({ label, value, color = 'text-gray-900', source = '' }) {
+  const srcColor = source === 'F' ? 'bg-blue-100 text-blue-700' : source === 'Fin' ? 'bg-green-100 text-green-700' : '';
   return (
     <div className="bg-white rounded-xl shadow-sm border p-4">
-      <div className="text-xs text-gray-500 font-medium uppercase tracking-wider">{label}</div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">{label}</span>
+        {source && <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${srcColor}`}>{source}</span>}
+      </div>
       <div className={`text-xl font-bold mt-1 ${color}`}>{value}</div>
     </div>
   );
 }
 
-function CompareCell({ label, curr, prev, formatter = fmt, single = false, color = '' }) {
+function CompareCell({ label, curr, prev, formatter = fmt, single = false, color = '', source = '' }) {
   const a = arrow(curr, prev);
+  const srcColor = source === 'F' ? 'bg-blue-100 text-blue-700' : source === 'Fin' ? 'bg-green-100 text-green-700' : '';
   return (
     <div>
-      <div className="text-xs text-gray-500 font-medium">{label}</div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-gray-500 font-medium">{label}</span>
+        {source && <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${srcColor}`}>{source}</span>}
+      </div>
       {single ? (
         <div className={`text-lg font-bold ${color}`}>{formatter(curr)}</div>
       ) : (
@@ -466,7 +502,7 @@ function PerfBadge({ tier }) {
   );
 }
 
-// âââ Hospital Summary âââââââââââââââââââââââââââââââââââââ
+// --- Hospital Summary ---
 
 function HospitalSummary({ data }) {
   const [sortBy, setSortBy] = useState('revenue');
@@ -541,44 +577,93 @@ function HospitalSummary({ data }) {
 
       {/* Hospital table */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <div className="px-4 py-2 bg-gray-50 border-b flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-semibold">F</span>
+            <span className="text-xs text-blue-700 font-medium">Funnel</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-semibold">Fin</span>
+            <span className="text-xs text-green-700 font-medium">Finance</span>
+          </div>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10">
               <tr>
-                <th className="px-4 py-3">Hospital</th>
+                <th className="px-4 py-3 sticky left-0 bg-gray-50 z-20">Hospital</th>
                 <th className="px-3 py-3">City</th>
-                <th className="px-3 py-3 text-right">Enquiry</th>
-                <th className="px-3 py-3 text-right">Bookings</th>
-                <th className="px-3 py-3 text-right">Completed</th>
-                <th className="px-3 py-3 text-right">Rev (Bkd)</th>
-                <th className="px-3 py-3 text-right">Conv %</th>
-                <th className="px-3 py-3 text-right">Cancel %</th>
-                <th className="px-3 py-3 text-right">Today Bkg</th>
-                <th className="px-3 py-3 text-right">Yday Bkg</th>
+                <th className="px-3 py-3 text-right border-l border-blue-200 bg-blue-50/50">Enq <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Bkg <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Comp <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Rev Bkd <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Conv% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Comp% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Cancel% <span className="text-blue-500">F</span></th>
+                <th className="px-2 py-3 text-right bg-blue-50/30 border-l border-blue-100" title="Today Enquiry">T.Enq</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Enq</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">T.Bkg</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Bkg</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">T.Comp</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Comp</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">T.Rev</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Rev</th>
+                <th className="px-3 py-3 text-right border-l border-green-200 bg-green-50/50">Trips <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Fin Rev <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Margin% <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">DQR% <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Own% <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Road Rev <span className="text-green-600">Fin</span></th>
+                <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">T.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">Y.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">T.FinRev</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</th>
                 <th className="px-3 py-3 text-center">Perf</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((h, i) => {
-                const a = arrow(h.TODAY_BOOKING, h.YDAY_BOOKING);
+                const bkgArr = arrow(h.TODAY_BOOKING, h.YDAY_BOOKING);
+                const hf = h.fin || {};
                 return (
                   <tr key={`${h.CITY}-${h.HOSPITAL}-${i}`} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition`}>
-                    <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[200px] truncate" title={h.HOSPITAL}>{h.HOSPITAL}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[200px] truncate sticky left-0 bg-inherit" title={h.HOSPITAL}>{h.HOSPITAL}</td>
                     <td className="px-3 py-2.5 text-gray-600">{h.cityName}</td>
-                    <td className="px-3 py-2.5 text-right">{fmt(h.MTD_ENQUIRY)}</td>
+                    <td className="px-3 py-2.5 text-right border-l border-blue-100">{fmt(h.MTD_ENQUIRY)}</td>
                     <td className="px-3 py-2.5 text-right font-medium">{fmt(h.MTD_BOOKING)}</td>
                     <td className="px-3 py-2.5 text-right">{fmt(h.MTD_TRIP_COMP)}</td>
                     <td className="px-3 py-2.5 text-right font-medium">{fmtL(h.MTD_REV_BKD_L)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(h.MTD_BKG_CONV_PCT, 50)}>{pct(h.MTD_BKG_CONV_PCT)}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-right">{pct(h.MTD_TRIP_COMP_PCT)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(h.MTD_CANCEL_PCT, 12, false)}>{pct(h.MTD_CANCEL_PCT)}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-right">{fmt(h.TODAY_BOOKING)}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-400">
-                      {fmt(h.YDAY_BOOKING)} <span className={`text-xs ${a.color}`}>{a.icon}</span>
+                    <td className="px-2 py-2.5 text-right text-xs border-l border-blue-100">{fmt(h.TODAY_ENQUIRY)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(h.YDAY_ENQUIRY)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmt(h.TODAY_BOOKING)} <span className={`${bkgArr.color} text-[10px]`}>{bkgArr.icon}</span></td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(h.YDAY_BOOKING)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmt(h.TODAY_TRIP_COMP)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(h.YDAY_TRIP_COMP)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmtL(h.TODAY_REV_BKD_L)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtL(h.YDAY_REV_BKD_L)}</td>
+                    <td className="px-3 py-2.5 text-right border-l border-green-100">{fmt(hf.MTD_TRIPS_DELIVERED)}</td>
+                    <td className="px-3 py-2.5 text-right font-medium">{fmtR(hf.MTD_REV)}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(hf.MTD_MARGIN_PCT, TARGETS.margin_pct)}>{pct(hf.MTD_MARGIN_PCT)}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(hf.MTD_DQR_PCT, TARGETS.dqr_pct)}>{pct(hf.MTD_DQR_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(hf.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}>{pct(hf.MTD_OWN_ROAD_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">{fmtR(hf.MTD_ROAD_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs border-l border-green-100">{fmt(hf.TODAY_TRIPS)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(hf.YDAY_TRIPS)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmtR(hf.TODAY_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtR(hf.YDAY_REV)}</td>
                     <td className="px-3 py-2.5 text-center"><PerfBadge tier={h.tier} /></td>
                   </tr>
                 );
@@ -597,7 +682,7 @@ function HospitalSummary({ data }) {
   );
 }
 
-// âââ Agent Summary ââââââââââââââââââââââââââââââââââââââââ
+// --- Agent Summary ---
 
 function AgentSummary({ data }) {
   const [sortBy, setSortBy] = useState('revenue');
@@ -673,50 +758,99 @@ function AgentSummary({ data }) {
 
       {/* Agent table */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <div className="px-4 py-2 bg-gray-50 border-b flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-semibold">F</span>
+            <span className="text-xs text-blue-700 font-medium">Funnel</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-semibold">Fin</span>
+            <span className="text-xs text-green-700 font-medium">Finance</span>
+          </div>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead className="sticky top-0 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider z-10">
               <tr>
-                <th className="px-4 py-3">Agent</th>
+                <th className="px-4 py-3 sticky left-0 bg-gray-50 z-20">Agent</th>
                 <th className="px-3 py-3">City</th>
                 <th className="px-3 py-3">LOB</th>
-                <th className="px-3 py-3 text-right">Enquiry</th>
-                <th className="px-3 py-3 text-right">Bookings</th>
-                <th className="px-3 py-3 text-right">Completed</th>
-                <th className="px-3 py-3 text-right">Rev (Bkd)</th>
-                <th className="px-3 py-3 text-right">Conv %</th>
-                <th className="px-3 py-3 text-right">Cancel %</th>
-                <th className="px-3 py-3 text-right">Today Bkg</th>
-                <th className="px-3 py-3 text-right">Yday Bkg</th>
+                <th className="px-3 py-3 text-right border-l border-blue-200 bg-blue-50/50">Enq <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Bkg <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Comp <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Rev Bkd <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Conv% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Comp% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Cancel% <span className="text-blue-500">F</span></th>
+                <th className="px-2 py-3 text-right bg-blue-50/30 border-l border-blue-100">T.Enq</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Enq</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">T.Bkg</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Bkg</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">T.Comp</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Comp</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">T.Rev</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Rev</th>
+                <th className="px-3 py-3 text-right border-l border-green-200 bg-green-50/50">Trips <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Fin Rev <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Margin% <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">DQR% <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Own% <span className="text-green-600">Fin</span></th>
+                <th className="px-3 py-3 text-right bg-green-50/50">Road Rev <span className="text-green-600">Fin</span></th>
+                <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">T.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">Y.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">T.FinRev</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</th>
                 <th className="px-3 py-3 text-center">Perf</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((a, i) => {
-                const ar = arrow(a.TODAY_BOOKING, a.YDAY_BOOKING);
+                const bkgArr = arrow(a.TODAY_BOOKING, a.YDAY_BOOKING);
+                const af = a.fin || {};
                 return (
                   <tr key={`${a.CITY}-${a.AGENT}-${i}`} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition`}>
-                    <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[200px] truncate" title={a.AGENT}>{a.agentShort}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[200px] truncate sticky left-0 bg-inherit" title={a.AGENT}>{a.agentShort}</td>
                     <td className="px-3 py-2.5 text-gray-600">{a.cityName}</td>
                     <td className="px-3 py-2.5">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${a.LOB === 'Hospital' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
                         {a.LOB}
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 text-right">{fmt(a.MTD_ENQUIRY)}</td>
+                    <td className="px-3 py-2.5 text-right border-l border-blue-100">{fmt(a.MTD_ENQUIRY)}</td>
                     <td className="px-3 py-2.5 text-right font-medium">{fmt(a.MTD_BOOKING)}</td>
                     <td className="px-3 py-2.5 text-right">{fmt(a.MTD_TRIP_COMP)}</td>
                     <td className="px-3 py-2.5 text-right font-medium">{fmtL(a.MTD_REV_BKD_L)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(a.MTD_BKG_CONV_PCT, 50)}>{pct(a.MTD_BKG_CONV_PCT)}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-right">{pct(a.MTD_TRIP_COMP_PCT)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(a.MTD_CANCEL_PCT, 12, false)}>{pct(a.MTD_CANCEL_PCT)}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-right">{fmt(a.TODAY_BOOKING)}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-400">
-                      {fmt(a.YDAY_BOOKING)} <span className={`text-xs ${ar.color}`}>{ar.icon}</span>
+                    <td className="px-2 py-2.5 text-right text-xs border-l border-blue-100">{fmt(a.TODAY_ENQUIRY)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(a.YDAY_ENQUIRY)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmt(a.TODAY_BOOKING)} <span className={`${bkgArr.color} text-[10px]`}>{bkgArr.icon}</span></td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(a.YDAY_BOOKING)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmt(a.TODAY_TRIP_COMP)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(a.YDAY_TRIP_COMP)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmtL(a.TODAY_REV_BKD_L)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtL(a.YDAY_REV_BKD_L)}</td>
+                    <td className="px-3 py-2.5 text-right border-l border-green-100">{fmt(af.MTD_TRIPS_DELIVERED)}</td>
+                    <td className="px-3 py-2.5 text-right font-medium">{fmtR(af.MTD_REV)}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(af.MTD_MARGIN_PCT, TARGETS.margin_pct)}>{pct(af.MTD_MARGIN_PCT)}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(af.MTD_DQR_PCT, TARGETS.dqr_pct)}>{pct(af.MTD_DQR_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(af.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}>{pct(af.MTD_OWN_ROAD_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">{fmtR(af.MTD_ROAD_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs border-l border-green-100">{fmt(af.TODAY_TRIPS)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(af.YDAY_TRIPS)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmtR(af.TODAY_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtR(af.YDAY_REV)}</td>
                     <td className="px-3 py-2.5 text-center"><PerfBadge tier={a.tier} /></td>
                   </tr>
                 );
@@ -735,7 +869,7 @@ function AgentSummary({ data }) {
   );
 }
 
-// âââ City Row (redesigned with visual distinction) ââââââââ
+// --- City Row (redesigned with visual distinction) ---
 
 function CityRow({ city }) {
   const [expanded, setExpanded] = useState(false);
@@ -762,8 +896,9 @@ function CityRow({ city }) {
           {/* Collapsed metrics - grouped by section */}
           <div className="hidden md:flex items-center gap-4 text-sm">
             {/* Funnel section */}
-            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-              <MetricPill label="Bookings" value={fmt(city.MTD_BOOKING)} />
+            <div className="flex items-center gap-3 pl-4 border-l-2 border-blue-400">
+              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-semibold">F</span>
+              <MetricPill label="Bkg" value={fmt(city.MTD_BOOKING)} />
               <MetricPill label="Rev" value={fmtL(city.MTD_REV_BKD_L)} />
               <MetricPill
                 label="Cancel"
@@ -773,8 +908,9 @@ function CityRow({ city }) {
             </div>
 
             {/* Finance section */}
-            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-              <MetricPill label="Fin Rev" value={fmtR(fin.MTD_REV)} />
+            <div className="flex items-center gap-3 pl-4 border-l-2 border-green-400">
+              <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-semibold">Fin</span>
+              <MetricPill label="Rev" value={fmtR(fin.MTD_REV)} />
               <MetricPill
                 label="Margin"
                 value={pct(fin.MTD_MARGIN_PCT)}
@@ -793,7 +929,7 @@ function CityRow({ city }) {
             </div>
           </div>
 
-          <span className="text-gray-400 text-lg ml-4">{expanded ? 'â²' : 'â¼'}</span>
+          <span className="text-gray-400 text-lg ml-4">{expanded ? '\u25B2' : '\u25BC'}</span>
         </div>
       </div>
 
