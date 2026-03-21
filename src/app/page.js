@@ -547,7 +547,6 @@ function HospitalSummary({ data }) {
               <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
                 <th className="px-4 py-3">Hospital</th>
                 <th className="px-3 py-3">City</th>
-                <th className="px-3 py-3">LOB</th>
                 <th className="px-3 py-3 text-right">Enquiry</th>
                 <th className="px-3 py-3 text-right">Bookings</th>
                 <th className="px-3 py-3 text-right">Completed</th>
@@ -566,11 +565,6 @@ function HospitalSummary({ data }) {
                   <tr key={`${h.CITY}-${h.HOSPITAL}-${i}`} className={`${h.tier.bg} hover:bg-opacity-80 transition`}>
                     <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[200px] truncate" title={h.HOSPITAL}>{h.HOSPITAL}</td>
                     <td className="px-3 py-2.5 text-gray-600">{h.cityName}</td>
-                    <td className="px-3 py-2.5">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${h.LOB === 'Hospital' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                        {h.LOB}
-                      </span>
-                    </td>
                     <td className="px-3 py-2.5 text-right">{fmt(h.MTD_ENQUIRY)}</td>
                     <td className="px-3 py-2.5 text-right font-medium">{fmt(h.MTD_BOOKING)}</td>
                     <td className="px-3 py-2.5 text-right">{fmt(h.MTD_TRIP_COMP)}</td>
