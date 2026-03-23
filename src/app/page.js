@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
 
 // --- Helpers ---
-const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : 'â';
-const fmtL = (n) => n != null ? 'â¹' + Number(n).toFixed(2) + 'L' : 'â';
-const fmtR = (n) => n != null ? 'â¹' + fmt(n) : 'â';
-const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : 'â';
+const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
+const fmtL = (n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014';
+const fmtR = (n) => n != null ? '\u20B9' + (Number(n)/100000).toFixed(2) + 'L' : '\u2014';
+const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '\u2014';
 const arrow = (curr, prev) => {
-  if (curr == null || prev == null) return { icon: 'â', color: 'text-gray-400' };
+  if (curr == null || prev == null) return { icon: '\u2192', color: 'text-gray-400' };
   const c = Number(curr), p = Number(prev);
-  if (c > p) return { icon: 'â', color: 'text-green-700' };
-  if (c < p) return { icon: 'â', color: 'text-red-600' };
-  return { icon: 'â', color: 'text-gray-400' };
+  if (c > p) return { icon: '\u2191', color: 'text-green-700' };
+  if (c < p) return { icon: '\u2193', color: 'text-red-600' };
+  return { icon: '\u2192', color: 'text-gray-400' };
 };
 const statusColor = (val, target, higherIsBetter = true) => {
   if (val == null) return 'text-gray-400';
