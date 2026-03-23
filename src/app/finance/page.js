@@ -6,7 +6,7 @@ import { CITY_NAMES } from '@/lib/constants';
 
 // --- Helpers ---
 const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
-const fmtR = (n) => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
+const fmtR = (n) => n != null ? '\u20B9' + (Number(n)/100000).toFixed(2) + 'L' : '\u2014';
 const fmtL = (n) => n != null ? '\u20B9' + (Number(n)/100000).toFixed(2) + 'L' : '\u2014';
 const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '\u2014';
 
@@ -314,21 +314,21 @@ export default function FinanceAnalytics() {
                 subtitle="Finance booked, direct patient payment"
                 amount={totals.realized}
                 totalRef={totals.totalFinance}
-                color="green" icon="\u2705"
+                color="green" icon={"\u2705"}
               />
               <CashBucket
                 title="Pipeline Cash"
                 subtitle="Funnel bookings, direct payment expected"
                 amount={totals.pipeline}
                 totalRef={totals.totalFunnel}
-                color="blue" icon="\u23F3"
+                color="blue" icon={"\u23F3"}
               />
               <CashBucket
                 title="Credit-Based Revenue"
                 subtitle="Bill-to-client (delayed cash inflow)"
                 amount={totals.creditFinance + totals.creditFunnel}
                 totalRef={totals.totalFinance + totals.totalFunnel}
-                color="amber" icon="\u26A0\uFE0F"
+                color="amber" icon={"\u26A0\uFE0F"}
                 detail={`Finance: ${fmtR(totals.creditFinance)} | Funnel: ${fmtR(totals.creditFunnel)}`}
               />
             </div>
