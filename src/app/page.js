@@ -349,11 +349,7 @@ export default function Dashboard() {
                   <span className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium">
                     {currentUser.name} ({currentUser.role.toUpperCase()})
                   </span>
-                  <button onClick={() => router.push('/finance')}
-                    className="px-3 py-1.5 bg-green-500/30 hover:bg-green-500/50 rounded-lg text-xs font-medium transition">
-                    Finance Analytics
-                  </button>
-                  {currentUser.role === 'admin' && (
+{currentUser.role === 'admin' && (
                     <button onClick={() => router.push('/admin')}
                       className="px-3 py-1.5 bg-yellow-500/30 hover:bg-yellow-500/50 rounded-lg text-xs font-medium transition">
                       Admin
