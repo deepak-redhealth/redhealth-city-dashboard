@@ -259,8 +259,8 @@ export default function Dashboard() {
       ownRoadPct: totalRoadRev > 0 ? (totalOwnRoad / totalRoadRev * 100).toFixed(1) : null,
       todayTrips: sumFin('TODAY_TRIPS'), todayRev: sumFin('TODAY_REV'),
       ydayTrips: sumFin('YDAY_TRIPS'), ydayRev: sumFin('YDAY_REV'),
-      todayTripsFun: sum('TODAY_TRIPS'), todayRevFun: sum('TODAY_REV'),
-      ydayTripsFun: sum('YDAY_TRIPS'), ydayRevFun: sum('YDAY_REV'),
+      todayTripsFun: sum('TODAY_TRIP_COMP'), todayRevFun: sum('TODAY_REV_BKD_L'),
+      ydayTripsFun: sum('YDAY_TRIP_COMP'), ydayRevFun: sum('YDAY_REV_BKD_L'),
     };
   }, [cityData]);
 
@@ -514,7 +514,7 @@ export default function Dashboard() {
                   <CompareCell
                     label="Revenue"
                     curr={totals.todayRevFun} prev={totals.ydayRevFun}
-                    fmt={fmtR}
+                    fmt={(n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014'}
                     source="Fun"
                   />
                 </div>
