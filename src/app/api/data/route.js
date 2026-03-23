@@ -2,51 +2,39 @@ import { NextResponse } from 'next/server';
 import { validateSession, resolveCities } from '@/lib/auth';
 import { executeQuery } from '@/lib/snowflake';
 import { buildFunnelQuery, buildFinanceQuery, buildAgentQuery, buildHospitalQuery, buildAgentFinanceQuery, buildHospitalFinanceQuery} from '@/lib/queries';
-import { buildCollectionsSummaryQuery, buildCollectionsHospitalQuery, buildCollectionsPartnerQuery, buildCollectionsEmployeeQuery, buildCollectionsTrendQuery, buildCollectionsAgeingDetailQuery, buildCollectionsB2HSummaryQuery } from '@/lib/collection-queries';
+import { buildCollectionsSummaryQuery, buildCollectionsHospitalQuery, buildCollectionsPartnerQuery, buildCollectionsEmployeeQuery, buildCollectionsTrendQuery, buildCollectionsAgeingDetailQuery, buildCollectionsB2HSummaryQuery, buildCollectionsLOBSummaryQuery, buildCollectionsRawReportQuery } from '@/lib/collection-queries';
 import { getDateRange } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-// Single proxy endpoint: /api/data?type=funnel|finance|agent|hospital|agent-finance|hospital-finance|coll-*
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const token = request.headers.get('x-session-token') || searchParams.get('token');
+    const type = searchParams.get('type');
+    const token = searchParams.get('token');
 
-    // Validate session
     const session = await validateSession(token);
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }, { status: 401 });
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
     }
 
-    const type = searchParams.get('type');
-    if (!type) {
-      return NextResponse.json({ error: 'Missing type parameter' }, { status: 400 });
-    }
-
-    // Check endpoint permission — collection types require 'collections' permission
     const isCollectionType = type.startsWith('coll-');
     const permissionKey = isCollectionType ? 'collections' : type;
     if (session.allowedEndpoints && !session.allowedEndpoints.includes(permissionKey) && session.role !== 'admin') {
       return NextResponse.json({ error: 'Access denied to this data type' }, { status: 403 });
     }
 
-    // Resolve cities for this user
     const cities = await resolveCities(session);
+    const cityString = cities.join(',');
 
-    // Get date params
-    const dates = getDateRange();
-    const mtdStart = searchParams.get('start') || dates.mtdStart;
-    const mtdEnd = searchParams.get('end') || dates.mtdEnd;
-    const today = searchParams.get('today') || dates.today;
-    const yesterday = searchParams.get('yesterday') || dates.yesterday;
+    const { mtdStart, mtdEnd, today, yesterday } = getDateRange();
 
-    // Collection-specific date params (wallet and payment date ranges)
-    const walletStart = searchParams.get('walletStart') || dates.mtdStart;
-    const walletEnd = searchParams.get('walletEnd') || dates.mtdEnd;
-    const paymentStart = searchParams.get('paymentStart') || dates.mtdStart;
-    const paymentEnd = searchParams.get('paymentEnd') || dates.today;
+    // Collection query parameters
+    const startDate = searchParams.get('startDate') || mtdStart;
+    const endDate = searchParams.get('endDate') || mtdEnd;
+    const dateType = searchParams.get('dateType') || 'wallet';
+    const lob = searchParams.get('lob') || '';
 
     let sql;
     switch (type) {
@@ -63,59 +51,46 @@ export async function GET(request) {
         sql = buildHospitalQuery(mtdStart, mtdEnd, today, yesterday);
         break;
       case 'agent-finance':
-        sql = buildAgentFinanceQuery ? buildAgentFinanceQuery(mtdStart, mtdEnd, today, yesterday) : null;
+        sql = buildAgentFinanceQuery(mtdStart, mtdEnd, today, yesterday);
         break;
       case 'hospital-finance':
-        sql = buildHospitalFinanceQuery ? buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday) : null;
+        sql = buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday);
         break;
-      // Collections module endpoints
       case 'coll-summary':
-        sql = buildCollectionsSummaryQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        sql = buildCollectionsSummaryQuery(startDate, endDate, dateType, lob, cityString);
         break;
       case 'coll-hospital':
-        sql = buildCollectionsHospitalQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        sql = buildCollectionsHospitalQuery(startDate, endDate, dateType, lob, cityString);
         break;
       case 'coll-partner':
-        sql = buildCollectionsPartnerQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        sql = buildCollectionsPartnerQuery(startDate, endDate, dateType, lob, cityString);
         break;
       case 'coll-employee':
-        sql = buildCollectionsEmployeeQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        sql = buildCollectionsEmployeeQuery(startDate, endDate, dateType, lob, cityString);
         break;
       case 'coll-trend':
-        sql = buildCollectionsTrendQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        sql = buildCollectionsTrendQuery(startDate, endDate, dateType, lob, cityString);
         break;
       case 'coll-ageing':
-        sql = buildCollectionsAgeingDetailQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        sql = buildCollectionsAgeingDetailQuery(startDate, endDate, dateType, lob, cityString);
         break;
       case 'coll-b2h':
-        sql = buildCollectionsB2HSummaryQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        sql = buildCollectionsB2HSummaryQuery(startDate, endDate, dateType, lob, cityString);
+        break;
+      case 'coll-lob':
+        sql = buildCollectionsLOBSummaryQuery(startDate, endDate, dateType, lob, cityString);
+        break;
+      case 'coll-raw':
+        sql = buildCollectionsRawReportQuery(startDate, endDate, dateType, lob, cityString);
         break;
       default:
-        return NextResponse.json({ error: 'Invalid data type' }, { status: 400 });
+        return NextResponse.json({ error: `Unknown type: ${type}` }, { status: 400 });
     }
 
-    if (!sql) {
-      return NextResponse.json({ error: 'Query builder not available for this type' }, { status: 400 });
-    }
-
-    let rows = await executeQuery(sql);
-
-    // Filter by user's allowed cities (server-side enforcement)
-    if (cities !== null && cities.length > 0) {
-      const allowed = new Set(cities.map(c => c.toUpperCase()));
-      rows = rows.filter(r => {
-        const city = (r.CITY || r.CITY_NAME || '').toUpperCase();
-        return allowed.has(city);
-      });
-    }
-
-    return NextResponse.json({
-      data: rows,
-      dates: { mtdStart, mtdEnd, today, yesterday, reportDate: dates.reportDate, monthName: dates.monthName },
-      user: { email: session.email, name: session.name, role: session.role, accessLevel: session.accessLevel }
-    });
-  } catch (error) {
-    console.error('Data proxy error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const rows = await executeQuery(sql, isCollectionType ? '' : cityString);
+    return NextResponse.json({ data: rows });
+  } catch (err) {
+    console.error('API error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-      }
+}
