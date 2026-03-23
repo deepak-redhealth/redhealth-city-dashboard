@@ -259,6 +259,8 @@ export default function Dashboard() {
       ownRoadPct: totalRoadRev > 0 ? (totalOwnRoad / totalRoadRev * 100).toFixed(1) : null,
       todayTrips: sumFin('TODAY_TRIPS'), todayRev: sumFin('TODAY_REV'),
       ydayTrips: sumFin('YDAY_TRIPS'), ydayRev: sumFin('YDAY_REV'),
+      todayTripsFun: sum('TODAY_TRIPS'), todayRevFun: sum('TODAY_REV'),
+      ydayTripsFun: sum('YDAY_TRIPS'), ydayRevFun: sum('YDAY_REV'),
     };
   }, [cityData]);
 
@@ -386,7 +388,7 @@ export default function Dashboard() {
               <>
                 <span>|</span>
                 <span className="px-2 py-0.5 bg-yellow-400/30 rounded font-semibold text-white">
-                  {currentUser.name} \u2014 {currentUser.role.toUpperCase()} ({currentUser.allowedCities ? currentUser.allowedCities.length + ' cities' : 'All'})
+                  {currentUser.name} {"\u2014"} {currentUser.role.toUpperCase()} ({currentUser.allowedCities ? currentUser.allowedCities.length + ' cities' : 'All'})
                 </span>
               </>
             )}
@@ -504,6 +506,17 @@ export default function Dashboard() {
                     curr={totals.revL > 0 ? (totals.canL / totals.revL * 100).toFixed(1) : null}
                     prev={null}
                     formatter={pct} single
+                  <CompareCell
+                    label="Trips Delivered"
+                    curr={totals.todayTripsFun} prev={totals.ydayTripsFun}
+                    source="Fun"
+                  />
+                  <CompareCell
+                    label="Revenue"
+                    curr={totals.todayRevFun} prev={totals.ydayRevFun}
+                    fmt={fmtR}
+                    source="Fun"
+                  />
                     color={statusColor(totals.revL > 0 ? (totals.canL / totals.revL * 100) : null, 12, false)}
                     source="F"
                   />
