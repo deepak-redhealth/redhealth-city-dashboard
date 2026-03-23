@@ -12,21 +12,21 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
-    const token = searchParams.get('token');
+    const token = request.headers.get('x-session-token') || searchParams.get('token');
 
     const session = await validateSession(token);
     if (!session) {
       return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
     }
 
-    const isCollectionType = type.startsWith('coll-');
+    const isCollectionType = type && type.startsWith('coll-');
     const permissionKey = isCollectionType ? 'collections' : type;
     if (session.allowedEndpoints && !session.allowedEndpoints.includes(permissionKey) && session.role !== 'admin') {
       return NextResponse.json({ error: 'Access denied to this data type' }, { status: 403 });
     }
 
     const cities = await resolveCities(session);
-    const cityString = cities.join(',');
+    const cityString = cities ? cities.join(',') : '';
 
     const { mtdStart, mtdEnd, today, yesterday } = getDateRange();
 
