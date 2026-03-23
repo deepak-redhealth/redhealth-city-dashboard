@@ -1147,7 +1147,7 @@ function CityRow({ city }) {
             </div>
           </div>
 
-          <span className="text-gray-400 text-lg ml-4">{expanded ? 'â²' : 'â¼'}</span>
+          <span className="text-gray-400 text-lg ml-4">{expanded ? '\u25B2' : '\u25BC'}</span>
         </div>
       </div>
 
