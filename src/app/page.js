@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
 
 // --- Helpers ---
-const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '—';
-const fmtL = (n) => n != null ? '₹' + Number(n).toFixed(2) + 'L' : '—';
-const fmtR = (n) => n != null ? '₹' + fmt(n) : '—';
-const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '—';
+const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
+const fmtL = (n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014';
+const fmtR = (n) => n != null ? '\u20B9' + fmt(n) : '\u2014';
+const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '\u2014';
 const arrow = (curr, prev) => {
-  if (curr == null || prev == null) return { icon: '→', color: 'text-gray-400' };
+  if (curr == null || prev == null) return { icon: '\u2192', color: 'text-gray-400' };
   const c = Number(curr), p = Number(prev);
-  if (c > p) return { icon: '↑', color: 'text-green-700' };
-  if (c < p) return { icon: '↓', color: 'text-red-600' };
-  return { icon: '→', color: 'text-gray-400' };
+  if (c > p) return { icon: '\u2191', color: 'text-green-700' };
+  if (c < p) return { icon: '\u2193', color: 'text-red-600' };
+  return { icon: '\u2192', color: 'text-gray-400' };
 };
 const statusColor = (val, target, higherIsBetter = true) => {
   if (val == null) return 'text-gray-400';
@@ -325,12 +325,92 @@ export default function Dashboard() {
               <div className="flex gap-1">
                 <button
                   onClick={() => { setCustomStart(getISTMonthStart()); setCustomEnd(getISTToday()); setIsCustomRange(false); }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${V_BKD_L'), canL: sum('MTD_REV_CAN_L'),
+      finRev: totalRev,
+      marginPct: totalNonOwnRev > 0 ? (totalMarginAmt / totalNonOwnRev * 100).toFixed(1) : null,
+      dqrPct: totalRev > 0 ? (totalDqr / totalRev * 100).toFixed(1) : null,
+      ownRoadPct: totalRoadRev > 0 ? (totalOwnRoad / totalRoadRev * 100).toFixed(1) : null,
+      todayTrips: sumFin('TODAY_TRIPS'), todayRev: sumFin('TODAY_REV'),
+      ydayTrips: sumFin('YDAY_TRIPS'), ydayRev: sumFin('YDAY_REV'),
+    };
+  }, [cityData]);
+
+  const toggleCity = (code) => {
+    setSelectedCities(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const tabs = [
+    { id: 'city', label: 'City View' },
+    { id: 'hospital', label: 'Hospital Summary' },
+    { id: 'agent', label: 'Agent Summary' },
+  ];
+
+  // --- Auth loading screen ---
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 bg-red-600 rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <span className="text-white text-xl font-bold">R</span>
+          </div>
+          <p className="text-gray-500 text-sm">Authenticating...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Render ---
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 py-5 sm:px-6">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">RED.Health City Performance</h1>
+              <p className="text-red-100 text-sm mt-1">
+                {dates ? `${dates.mtdStart} \u2192 ${dates.mtdEnd}` : 'Loading...'}
+                {isCustomRange && <span className="ml-2 px-1.5 py-0.5 bg-white/20 rounded text-xs">Custom</span>}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Date Range Picker */}
+              <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-3 py-1.5">
+                <label className="text-xs text-red-100 font-medium">From</label>
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => { setCustomStart(e.target.value); setIsCustomRange(true); }}
+                  className="bg-white/20 text-white text-sm rounded px-2 py-1 border border-white/30 focus:outline-none focus:border-white/60 [color-scheme:dark]"
+                />
+                <label className="text-xs text-red-100 font-medium ml-1">To</label>
+                <input
+                  type="date"
+                  value={customEnd}
+                  max={getISTToday()}
+                  onChange={(e) => { setCustomEnd(e.target.value); setIsCustomRange(true); }}
+                  className="bg-white/20 text-white text-sm rounded px-2 py-1 border border-white/30 focus:outline-none focus:border-white/60 [color-scheme:dark]"
+                />
+              </div>
+              {/* Quick presets */}
+              <div className="flex gap-1">
+                <button
+                  onClick={() => { setCustomStart(getISTMonthStart()); setCustomEnd(getISTToday()); setIsCustomRange(false); }}
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${!isCustomRange ? 'bg-white text-red-700' : 'bg-white/20 hover:bg-white/30'}`}
-                >MTD</button>
+                >
+                  MTD
+                </button>!isCustomRange ? 'bg-white text-red-700' : 'bg-white/20 hover:bg-white/30'}`}
+                >
+                  MTD
+                </button>
                 <button
                   onClick={() => { setCustomStart(getISTYesterday()); setCustomEnd(getISTYesterday()); setIsCustomRange(true); }}
                   className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium transition"
-                >Yesterday</button>
+                >
+                  Yesterday
+                </button>
                 <button
                   onClick={() => {
                     const end = new Date(getISTToday() + 'T00:00:00');
@@ -341,7 +421,9 @@ export default function Dashboard() {
                     setIsCustomRange(true);
                   }}
                   className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium transition"
-                >Last 7d</button>
+                >
+                  Last 7d
+                </button>
               </div>
               {/* Auth User Info */}
               {currentUser && (
@@ -349,6 +431,10 @@ export default function Dashboard() {
                   <span className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium">
                     {currentUser.name} ({currentUser.role.toUpperCase()})
                   </span>
+                  <button onClick={() => router.push('/finance')}
+                    className="px-3 py-1.5 bg-green-500/30 hover:bg-green-500/50 rounded-lg text-xs font-medium transition">
+                    Finance Analytics
+                  </button>
                   {currentUser.role === 'admin' && (
                     <button onClick={() => router.push('/admin')}
                       className="px-3 py-1.5 bg-yellow-500/30 hover:bg-yellow-500/50 rounded-lg text-xs font-medium transition">
@@ -1143,7 +1229,7 @@ function CityRow({ city }) {
             </div>
           </div>
 
-          <span className="text-gray-400 text-lg ml-4">{expanded ? '▲' : '▼'}</span>
+          <span className="text-gray-400 text-lg ml-4">{expanded ? '\u25B2' : '\u25BC'}</span>
         </div>
       </div>
 
