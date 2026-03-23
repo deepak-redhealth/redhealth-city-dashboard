@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { validateSession, resolveCities } from '@/lib/auth';
 import { executeQuery } from '@/lib/snowflake';
-import { buildFunnelQuery, buildFinanceQuery, buildAgentQuery, buildHospitalQuery, buildAgentFinanceQuery, buildHospitalFinanceQuery, buildFinanceAnalyticsFunnelQuery, buildFinanceAnalyticsFinanceQuery } from '@/lib/queries';
+import { buildFunnelQuery, buildFinanceQuery, buildAgentQuery, buildHospitalQuery, buildAgentFinanceQuery, buildHospitalFinanceQuery} from '@/lib/queries';
 import { getDateRange } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
@@ -58,14 +58,7 @@ export async function GET(request) {
         break;
       case 'hospital-finance':
         sql = buildHospitalFinanceQuery ? buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday) : null;
-        break;
-      case 'finance-analytics-funnel':
-        sql = buildFinanceAnalyticsFunnelQuery(mtdStart, mtdEnd, today, yesterday);
-        break;
-      case 'finance-analytics-finance':
-        sql = buildFinanceAnalyticsFinanceQuery(mtdStart, mtdEnd, today, yesterday);
-        break;
-      default:
+        break;      default:
         return NextResponse.json({ error: 'Invalid data type' }, { status: 400 });
     }
 
