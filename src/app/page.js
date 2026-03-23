@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
-import CollectionsModule from './collections';
 
 // --- Helpers ---
 const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
@@ -275,7 +274,6 @@ export default function Dashboard() {
     { id: 'city', label: 'City View' },
     { id: 'hospital', label: 'Hospital Summary' },
     { id: 'agent', label: 'Agent Summary' },
-    { id: 'collections', label: 'Collections' },
   ];
 
   // --- Auth loading screen ---
@@ -359,6 +357,11 @@ export default function Dashboard() {
                       Admin
                     </button>
                   )}
+                  <button onClick={() => router.push('/collections')}
+                    style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '6px 16px',
+                      borderRadius: 4, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                    Collections
+                  </button>
                   <button onClick={() => {
                     fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ action: 'logout', token: sessionToken }) });
@@ -561,9 +564,6 @@ export default function Dashboard() {
               <AgentSummary data={agentData} />
             )}
 
-            {activeTab === 'collections' && (
-              <CollectionsModule token={sessionToken} dates={dates} userCities={selectedCities} />
-            )}
           </>
         )}
       </main>
