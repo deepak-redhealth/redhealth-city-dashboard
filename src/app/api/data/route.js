@@ -28,7 +28,7 @@ export async function GET(request) {
     // Check endpoint permission — collection types require 'collections' permission
     const isCollectionType = type.startsWith('coll-');
     const permissionKey = isCollectionType ? 'collections' : type;
-    if (session.allowedEndpoints && !session.allowedEndpoints.includes(permissionKey)) {
+    if (session.allowedEndpoints && !session.allowedEndpoints.includes(permissionKey) && session.role !== 'admin') {
       return NextResponse.json({ error: 'Access denied to this data type' }, { status: 403 });
     }
 
