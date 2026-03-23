@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server';
 import { validateSession, resolveCities } from '@/lib/auth';
 import { executeQuery } from '@/lib/snowflake';
 import { buildFunnelQuery, buildFinanceQuery, buildAgentQuery, buildHospitalQuery, buildAgentFinanceQuery, buildHospitalFinanceQuery} from '@/lib/queries';
+import { buildCollectionsSummaryQuery, buildCollectionsHospitalQuery, buildCollectionsPartnerQuery, buildCollectionsEmployeeQuery, buildCollectionsTrendQuery, buildCollectionsAgeingDetailQuery, buildCollectionsB2HSummaryQuery } from '@/lib/collection-queries';
 import { getDateRange } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-// Single proxy endpoint: /api/data?type=funnel|finance|agent|hospital|agent-finance|hospital-finance
+// Single proxy endpoint: /api/data?type=funnel|finance|agent|hospital|agent-finance|hospital-finance|coll-*
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -24,8 +25,10 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Missing type parameter' }, { status: 400 });
     }
 
-    // Check endpoint permission
-    if (session.allowedEndpoints && !session.allowedEndpoints.includes(type)) {
+    // Check endpoint permission — collection types require 'collections' permission
+    const isCollectionType = type.startsWith('coll-');
+    const permissionKey = isCollectionType ? 'collections' : type;
+    if (session.allowedEndpoints && !session.allowedEndpoints.includes(permissionKey)) {
       return NextResponse.json({ error: 'Access denied to this data type' }, { status: 403 });
     }
 
@@ -38,6 +41,12 @@ export async function GET(request) {
     const mtdEnd = searchParams.get('end') || dates.mtdEnd;
     const today = searchParams.get('today') || dates.today;
     const yesterday = searchParams.get('yesterday') || dates.yesterday;
+
+    // Collection-specific date params (wallet and payment date ranges)
+    const walletStart = searchParams.get('walletStart') || dates.mtdStart;
+    const walletEnd = searchParams.get('walletEnd') || dates.mtdEnd;
+    const paymentStart = searchParams.get('paymentStart') || dates.mtdStart;
+    const paymentEnd = searchParams.get('paymentEnd') || dates.today;
 
     let sql;
     switch (type) {
@@ -58,7 +67,30 @@ export async function GET(request) {
         break;
       case 'hospital-finance':
         sql = buildHospitalFinanceQuery ? buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday) : null;
-        break;      default:
+        break;
+      // Collections module endpoints
+      case 'coll-summary':
+        sql = buildCollectionsSummaryQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        break;
+      case 'coll-hospital':
+        sql = buildCollectionsHospitalQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        break;
+      case 'coll-partner':
+        sql = buildCollectionsPartnerQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        break;
+      case 'coll-employee':
+        sql = buildCollectionsEmployeeQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        break;
+      case 'coll-trend':
+        sql = buildCollectionsTrendQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        break;
+      case 'coll-ageing':
+        sql = buildCollectionsAgeingDetailQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        break;
+      case 'coll-b2h':
+        sql = buildCollectionsB2HSummaryQuery(walletStart, walletEnd, paymentStart, paymentEnd);
+        break;
+      default:
         return NextResponse.json({ error: 'Invalid data type' }, { status: 400 });
     }
 
@@ -86,4 +118,4 @@ export async function GET(request) {
     console.error('Data proxy error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-}
+      }
