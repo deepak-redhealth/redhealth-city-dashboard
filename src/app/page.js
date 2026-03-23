@@ -505,7 +505,7 @@ export default function Dashboard() {
                     label="Cancel %"
                     curr={totals.revL > 0 ? (totals.canL / totals.revL * 100).toFixed(1) : null}
                     prev={null}
-                    formatter={pct} single
+                    formatter={pct} single />
                   <CompareCell
                     label="Trips Delivered"
                     curr={totals.todayTripsFun} prev={totals.ydayTripsFun}
@@ -516,9 +516,6 @@ export default function Dashboard() {
                     curr={totals.todayRevFun} prev={totals.ydayRevFun}
                     fmt={fmtR}
                     source="Fun"
-                  />
-                    color={statusColor(totals.revL > 0 ? (totals.canL / totals.revL * 100) : null, 12, false)}
-                    source="F"
                   />
                 </div>
               </div>
