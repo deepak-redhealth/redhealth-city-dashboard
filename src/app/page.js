@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
+import CollectionsModule from './collections';
 
 // --- Helpers ---
 const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
@@ -274,6 +275,7 @@ export default function Dashboard() {
     { id: 'city', label: 'City View' },
     { id: 'hospital', label: 'Hospital Summary' },
     { id: 'agent', label: 'Agent Summary' },
+    { id: 'collections', label: 'Collections' },
   ];
 
   // --- Auth loading screen ---
@@ -557,6 +559,10 @@ export default function Dashboard() {
             {/* Agent Summary Tab */}
             {activeTab === 'agent' && (
               <AgentSummary data={agentData} />
+            )}
+
+            {activeTab === 'collections' && (
+              <CollectionsModule token={sessionToken} dates={dates} userCities={selectedCities} />
             )}
           </>
         )}
