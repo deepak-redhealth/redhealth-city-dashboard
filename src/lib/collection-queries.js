@@ -5,9 +5,7 @@
 
 const ORG_ID = '14927ff8-a1f6-49ba-abcb-7bb1cf842d52';
 
-// =============================================================================
 // HELPER FUNCTIONS
-// =============================================================================
 
 /**
  * Build date filter for wallet or payment dates
@@ -51,9 +49,7 @@ function buildCitiesFilter(cities) {
   return `AND city IN (${cityList})`;
 }
 
-// =============================================================================
 // BASE CTE BUILDER
-// =============================================================================
 
 /**
  * Build the base CTE with all calculations
@@ -185,9 +181,7 @@ external_wallet AS (
   `;
 }
 
-// =============================================================================
 // EXPORTED QUERY BUILDERS
-// =============================================================================
 
 /**
  * Build Collections Summary Query - GROUP BY CITY, LOB
