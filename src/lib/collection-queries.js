@@ -17,7 +17,9 @@ import { ORG_ID } from './constants';
  */
 function buildTxnDateFilter(dateType, startDate, endDate) {
   if (dateType === 'payment_received') {
-    return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', btd.PAYMENT_SETTLED_AT_TIMESTAMP)) BETWEEN '${startDate}' AND '${endDate}'`;
+    // Use PAYMENT_SETTLED_AT_TIMESTAMP, falling back to TIMESTAMP when NULL
+    // (COMPANY/CLEARED txns never have PAYMENT_SETTLED_AT_TIMESTAMP populated)
+    return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', COALESCE(btd.PAYMENT_SETTLED_AT_TIMESTAMP, TO_TIMESTAMP(btd.TIMESTAMP)))) BETWEEN '${startDate}' AND '${endDate}'`;
   }
   // Default: transaction created date
   return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(btd.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'`;
@@ -163,6 +165,8 @@ base_orders AS (
     ${citiesFilter}
 ),
 
+-- Payment CTEs: NO date filter here. orders_in_scope already scopes which orders to include.
+-- Date filtering on company_receipts fails because PAYMENT_SETTLED_AT_TIMESTAMP is NULL for all CLEARED/COMPANY txns.
 company_receipts AS (
   SELECT
     btd.ORDER_ID,
@@ -175,7 +179,6 @@ company_receipts AS (
     AND btd.PAYMENT_STATE = 'CLEARED'
     AND ba.ENTITY_TYPE = 'COMPANY'
     AND btd.TRANSACTION_MODE != 'KIND'
-    ${txnDateFilter}
   GROUP BY btd.ORDER_ID
 ),
 
@@ -191,7 +194,6 @@ internal_outstanding AS (
     AND btd.PAYMENT_STATE = 'OUTSTANDING'
     AND btd.IS_TRANSACTION_TERMINAL = FALSE
     AND ba.ENTITY_TYPE NOT IN ('PARTNER', 'ADMIN')
-    ${txnDateFilter}
   GROUP BY btd.ORDER_ID
 ),
 
@@ -206,7 +208,6 @@ external_wallet AS (
     AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'OFFLINE_ORDER_PAYMENTS')
     AND btd.PAYMENT_STATE = 'OUTSTANDING'
     AND ba.ENTITY_TYPE = 'PARTNER'
-    ${txnDateFilter}
   GROUP BY btd.ORDER_ID
 )
   `;
@@ -413,8 +414,9 @@ export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, ci
   const lobFilter = buildLOBFilter(lob);
   const citiesFilter = buildCitiesFilter(cities);
 
+  // COALESCE ensures COMPANY/CLEARED txns (where PAYMENT_SETTLED_AT_TIMESTAMP is always NULL) still get a date
   const txnDateExpr = dateType === 'payment_received'
-    ? `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', btd.PAYMENT_SETTLED_AT_TIMESTAMP))`
+    ? `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', COALESCE(btd.PAYMENT_SETTLED_AT_TIMESTAMP, TO_TIMESTAMP(btd.TIMESTAMP))))`
     : `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(btd.TIMESTAMP)))`;
 
   return `
