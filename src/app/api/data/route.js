@@ -35,8 +35,8 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Missing type parameter' }, { status: 400 });
     }
 
-    // Check endpoint permission
-    if (session.allowedEndpoints && !session.allowedEndpoints.includes(type)) {
+    // Check endpoint permission (collection endpoints allowed for all authenticated users)
+    if (session.allowedEndpoints && !type.startsWith('coll-') && !session.allowedEndpoints.includes(type)) {
       return NextResponse.json({ error: 'Access denied to this data type' }, { status: 403 });
     }
 
