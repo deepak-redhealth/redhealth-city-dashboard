@@ -7,7 +7,7 @@
 //
 // KEY COLUMNS:
 // - TOTAL_RECEIVED_IN_BANK: All-time amount received in Red Health terminal accounts for these orders
-// - (bank_period removed — transaction TIMESTAMP unreliable for date scoping)
+// - TOTAL_AT_BANK_IN_PERIOD: Amount received at terminal account within the selected date range only
 // - PENDING_COLLECTION: Total Red Margin - Total Received in Bank (all-time) — the true net gap
 // - PENDING_EMPLOYEE: Wallet internal — current snapshot (B2P orders, OUTSTANDING, non-PARTNER/ADMIN)
 // - PENDING_PARTNER: Wallet operator — from BLADE_PARTNER_OUTSTANDING_LEDGER (latest per order, BOOKING+COMPLETED)
@@ -151,6 +151,21 @@ bank_alltime AS (
   GROUP BY trm.ORDER_ID
 ),
 
+-- TERMINAL ACCOUNT (THIS PERIOD): Amount received at bank within selected date range only
+bank_period AS (
+  SELECT
+    trm.ORDER_ID,
+    ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100), 0) as bank_amount_period
+  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
+  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao
+    ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
+  WHERE trm.ORG_ID = '${ORG_ID}'
+    AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
+    AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
+    AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'
+  GROUP BY trm.ORDER_ID
+),
+
 -- WALLET INTERNAL: Outstanding balance held by internal employees (HM, Pilot, etc.)
 -- Only for Bill-to-Patient orders, excludes PARTNER and ADMIN accounts
 internal_outstanding AS (
@@ -202,6 +217,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
+  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
 
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
@@ -215,6 +231,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
@@ -233,6 +250,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
+  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
 
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
@@ -246,6 +264,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
@@ -265,6 +284,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
+  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
 
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
@@ -278,6 +298,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
@@ -298,6 +319,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
+  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
 
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
@@ -311,6 +333,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
@@ -338,6 +361,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
+  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
 
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
@@ -352,6 +376,7 @@ SELECT
 FROM base_orders ro
 LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
@@ -407,7 +432,7 @@ SELECT
   ro.created_date as CREATED_DATE, ro.fulfilled_date as FULFILLED_DATE, ro.order_status as ORDER_STATUS,
   ro.total_revenue as TOTAL_REVENUE, ro.red_margin as RED_MARGIN,
   COALESCE(ba.bank_amount, 0) as RECEIVED_IN_BANK,
-
+  COALESCE(bp.bank_amount_period, 0) as AT_BANK_IN_PERIOD,
   COALESCE(io.internal_amount, 0) as PENDING_EMPLOYEE,
   COALESCE(ew.external_amount, 0) as PENDING_PARTNER,
   ro.red_margin - COALESCE(ba.bank_amount, 0) as PENDING_COLLECTION,
@@ -421,6 +446,7 @@ SELECT
   END as RISK_TAG
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
@@ -444,6 +470,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
+  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
 
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
@@ -452,6 +479,7 @@ SELECT
   ROUND(SUM(COALESCE(bc.b2h_cost, 0)), 0) as B2H_COST
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
@@ -479,7 +507,7 @@ SELECT
   ro.fulfilled_date as FULFILLED_DATE, ro.lob as LOB, ro.provider_type as PROVIDER_TYPE,
   ro.total_revenue as TOTAL_REVENUE, ro.red_margin as RED_MARGIN,
   COALESCE(ba.bank_amount, 0) as RECEIVED_IN_BANK,
-
+  COALESCE(bp.bank_amount_period, 0) as AT_BANK_IN_PERIOD,
   COALESCE(io.internal_amount, 0) as PENDING_EMPLOYEE,
   COALESCE(ew.external_amount, 0) as PENDING_PARTNER,
   ro.red_margin - COALESCE(ba.bank_amount, 0) as PENDING_COLLECTION,
@@ -498,6 +526,7 @@ SELECT
 FROM base_orders ro
 LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
+LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
