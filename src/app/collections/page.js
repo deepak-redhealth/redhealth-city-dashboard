@@ -146,13 +146,15 @@ export default function CollectionsPage() {
   const fmtAmt = (v) => {
     const n = Number(v);
     if (isNaN(n)) return v;
+    const abs = Math.abs(n);
+    if (abs >= 100000) return (n / 100000).toFixed(2) + ' L';
     return fmtIndian(n);
   };
 
   const formatCell = (colName, value) => {
     if (value === null || value === undefined) return '';
     const upper = colName.toUpperCase();
-    if (['REVENUE', 'MARGIN', 'BANK', 'PENDING', 'COLLECTION', 'COST', 'CASH', 'B2H'].some(k => upper.includes(k))) {
+    if (['REVENUE', 'MARGIN', 'BANK', 'PENDING', 'COLLECT', 'COST', 'CASH', 'B2H'].some(k => upper.includes(k))) {
       return fmtAmt(value);
     }
     if (upper.includes('PCT') || upper.includes('EFFICIENCY')) {
@@ -219,7 +221,7 @@ export default function CollectionsPage() {
       const avg = filteredData.reduce((acc, row) => acc + (Number(row[colName]) || 0), 0) / filteredData.length;
       return Math.round(avg).toString();
     }
-    const isNumeric = ['REVENUE', 'MARGIN', 'BANK', 'PENDING', 'COLLECTION', 'COST', 'CASH', 'B2H', 'COUNT', 'ORDERS'].some(k => upper.includes(k));
+    const isNumeric = ['REVENUE', 'MARGIN', 'BANK', 'PENDING', 'COLLECT', 'COST', 'CASH', 'B2H', 'COUNT', 'ORDERS'].some(k => upper.includes(k));
     if (!isNumeric) return '';
     const sum = filteredData.reduce((acc, row) => acc + (Number(row[colName]) || 0), 0);
     return formatCell(colName, sum);
