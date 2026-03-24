@@ -204,19 +204,19 @@ SELECT
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
     2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
   ) as AGE_0_3_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
   ) as AGE_4_7_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
   ) as AGE_8_15_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
   ) as AGE_16_30_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
   ) as AGE_30PLUS_COUNT,
   ROUND(
@@ -254,19 +254,19 @@ SELECT
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
     2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
   ) as AGE_0_3_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
   ) as AGE_4_7_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
   ) as AGE_8_15_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
   ) as AGE_16_30_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
   ) as AGE_30PLUS_COUNT,
   ROUND(
@@ -305,19 +305,19 @@ SELECT
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
     2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
   ) as AGE_0_3_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
   ) as AGE_4_7_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
   ) as AGE_8_15_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
   ) as AGE_16_30_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
   ) as AGE_30PLUS_COUNT,
   ROUND(
@@ -359,19 +359,19 @@ SELECT
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
     2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
   ) as AGE_0_3_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
   ) as AGE_4_7_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
   ) as AGE_8_15_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
   ) as AGE_16_30_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
   ) as AGE_30PLUS_COUNT,
   ROUND(
@@ -515,19 +515,19 @@ SELECT
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
     2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
   ) as AGE_0_3_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
   ) as AGE_4_7_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
   ) as AGE_8_15_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
   ) as AGE_16_30_COUNT,
-  COUNTIF(
+  COUNT_IF(
     DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
   ) as AGE_30PLUS_COUNT,
   ROUND(
