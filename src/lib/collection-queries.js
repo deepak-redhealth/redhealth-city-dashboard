@@ -612,12 +612,9 @@ SELECT
     ELSE 'Pending'
   END as COLLECTION_SOURCE,
   CASE WHEN ro.provider_type = 'Partner' THEN ro.total_revenue - ro.red_margin ELSE 0 END as COST_TO_OPERATOR,
-  CASE WHEN ro.provider_type = 'Own'
-    THEN ROUND(COALESCE(ro.TOTAL_ADDONS_PRICE, 0) / 100.0, 0)
-    ELSE 0 END as ADDONS_COST,
+  ROUND(COALESCE(ro.TOTAL_ADDONS_PRICE, 0) / 100.0, 0) as ADDONS_PRICE,
   COALESCE(cr.bank_amount, 0)
     - CASE WHEN ro.provider_type = 'Partner' THEN GREATEST(0, COALESCE(cr.bank_amount, 0) - ro.red_margin) ELSE 0 END
-    - CASE WHEN ro.provider_type = 'Own' THEN ROUND(COALESCE(ro.TOTAL_ADDONS_PRICE, 0) / 100.0, 0) ELSE 0 END
     as NET_CASH_TO_COMPANY
 FROM base_orders ro
 LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
