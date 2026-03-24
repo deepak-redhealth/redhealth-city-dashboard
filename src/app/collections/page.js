@@ -8,7 +8,7 @@ export default function CollectionsPage() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [dateType, setDateType] = useState('wallet');
+  const [dateType, setDateType] = useState('txn_created');
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
@@ -313,8 +313,8 @@ export default function CollectionsPage() {
                 onChange={(e) => setDateType(e.target.value)}
                 style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ddd', fontSize: 13 }}
               >
-                <option value="wallet">Order Created Date</option>
-                <option value="payment">Fulfillment Date</option>
+                <option value="txn_created">Transaction Created Date</option>
+                <option value="payment_received">Payment Received Date</option>
               </select>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
