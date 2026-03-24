@@ -33,7 +33,7 @@ export async function GET(request) {
     // Collection query parameters
     const startDate = searchParams.get('startDate') || mtdStart;
     const endDate = searchParams.get('endDate') || mtdEnd;
-    const dateType = searchParams.get('dateType') || 'wallet';
+    const dateType = searchParams.get('dateType') || 'txn_created';
     const lob = searchParams.get('lob') || '';
 
     let sql;
