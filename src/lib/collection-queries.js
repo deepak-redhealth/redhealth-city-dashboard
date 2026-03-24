@@ -1,24 +1,24 @@
 // Red Health Collections & Payments Dashboard Query Builder
 // Snowflake SQL query builder with parameter structure:
-// (startDate, endDate, dateType, lob, cities)
-// dateType: 'txn_created' (transaction created date) or 'payment_received' (payment settled in terminal account)
+// (startDate, endDate, lob, cities)
+// Date filter: Order creation date (META_CREATED_AT_TIMESTAMP converted UTC→IST)
+// Transaction TIMESTAMP in BLADE_TRANSACTIONS_DATA is unreliable for date scoping
+// (gets overwritten to latest sync date), so we scope orders by their creation date.
 //
 // KEY COLUMNS:
 // - TOTAL_RECEIVED_IN_BANK: All-time amount received in Red Health terminal accounts for these orders
-// - TOTAL_AT_BANK_IN_PERIOD: Amount received in terminal accounts within the selected date range only
+// - (bank_period removed — transaction TIMESTAMP unreliable for date scoping)
 // - PENDING_COLLECTION: Total Red Margin - Total Received in Bank (all-time) — the true net gap
 // - PENDING_EMPLOYEE: Wallet internal — current snapshot (B2P orders, OUTSTANDING, non-PARTNER/ADMIN)
-// - PENDING_PARTNER: Wallet operator — from BLADE_PARTNER_OUTSTANDING_LEDGER_DATA (latest per order)
+// - PENDING_PARTNER: Wallet operator — from BLADE_PARTNER_OUTSTANDING_LEDGER (latest per order, BOOKING+COMPLETED)
 
 import { ORG_ID } from './constants';
 
 // HELPER FUNCTIONS
 
-function buildTxnDateFilter(dateType, startDate, endDate) {
-  if (dateType === 'payment_received') {
-    return `AND btd.PAYMENT_SETTLED_AT_TIMESTAMP IS NOT NULL AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', btd.PAYMENT_SETTLED_AT_TIMESTAMP)) BETWEEN '${startDate}' AND '${endDate}'`;
-  }
-  return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(btd.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'`;
+// Order creation date filter — applied on the orders table with proper UTC→IST conversion
+function buildOrderDateFilter(startDate, endDate) {
+  return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) BETWEEN '${startDate}' AND '${endDate}'`;
 }
 
 function buildLOBFilter(lob) {
@@ -44,15 +44,9 @@ function buildCitiesFilter(cities) {
 // BASE CTE BUILDER
 
 function buildBaseCTE(startDate, endDate, dateType, lob, cities) {
-  const txnDateFilter = buildTxnDateFilter(dateType, startDate, endDate);
+  const orderDateFilter = buildOrderDateFilter(startDate, endDate);
   const lobFilter = buildLOBFilter(lob);
   const citiesFilter = buildCitiesFilter(cities);
-
-  // Period date filter for bank_period CTE
-  // Terminal account transactions NEVER have PAYMENT_SETTLED_AT_TIMESTAMP populated (always NULL).
-  // TO_TIMESTAMP(trm.TIMESTAMP) is when the payment was received at the terminal account (bank).
-  // So we always use TIMESTAMP for the bank_period CTE regardless of dateType.
-  const periodDateFilter = `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'`;
 
   return `
 WITH raw_orders AS (
@@ -124,19 +118,11 @@ WITH raw_orders AS (
     AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%')
     AND bo.META_ORDER_TYPE = 'BOOKING'
     AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
-),
-
-orders_in_scope AS (
-  SELECT DISTINCT btd.ORDER_ID
-  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA btd
-  WHERE btd.ORG_ID = '${ORG_ID}'
-    AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'OFFLINE_ORDER_PAYMENTS')
-    ${txnDateFilter}
+    ${orderDateFilter}
 ),
 
 base_orders AS (
   SELECT ro.* FROM raw_orders ro
-  INNER JOIN orders_in_scope ois ON ro.ORDER_ID = ois.ORDER_ID
   WHERE 1=1
     ${lobFilter}
     ${citiesFilter}
@@ -153,21 +139,6 @@ bank_alltime AS (
   WHERE trm.ORG_ID = '${ORG_ID}'
     AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
     AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
-  GROUP BY trm.ORDER_ID
-),
-
--- TERMINAL ACCOUNT (PERIOD): Amount received in Red Health bank WITHIN the selected date range
-bank_period AS (
-  SELECT
-    trm.ORDER_ID,
-    ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100), 0) as bank_amount_period
-  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
-  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao
-    ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
-  WHERE trm.ORG_ID = '${ORG_ID}'
-    AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
-    AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
-    ${periodDateFilter}
   GROUP BY trm.ORDER_ID
 ),
 
@@ -222,7 +193,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
-  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
+
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(ro.red_margin) - SUM(COALESCE(ba.bank_amount, 0)), 0) as PENDING_COLLECTION,
@@ -235,7 +206,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 GROUP BY ro.lob
@@ -253,7 +224,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
-  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
+
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(ro.red_margin) - SUM(COALESCE(ba.bank_amount, 0)), 0) as PENDING_COLLECTION,
@@ -266,7 +237,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 GROUP BY ro.city, ro.lob
@@ -285,7 +256,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
-  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
+
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(ro.red_margin) - SUM(COALESCE(ba.bank_amount, 0)), 0) as PENDING_COLLECTION,
@@ -298,7 +269,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 GROUP BY ro.city, ro.hospital_name, ro.lob
@@ -318,7 +289,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
-  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
+
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(ro.red_margin) - SUM(COALESCE(ba.bank_amount, 0)), 0) as PENDING_COLLECTION,
@@ -331,7 +302,7 @@ SELECT
   ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 GROUP BY ro.city, CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END, ro.provider_type, ro.lob
@@ -358,7 +329,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
-  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
+
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(ro.red_margin) - SUM(COALESCE(ba.bank_amount, 0)), 0) as PENDING_COLLECTION,
@@ -372,7 +343,7 @@ SELECT
 FROM base_orders ro
 LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 GROUP BY ed.email, ed.name, ed.user_type, ed.status, ro.created_by_email, ro.city, ro.lob
@@ -383,41 +354,13 @@ ORDER BY EMPLOYEE_EMAIL, ro.city, ro.lob;
 export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, cities) {
   const lobFilter = buildLOBFilter(lob);
   const citiesFilter = buildCitiesFilter(cities);
-  // Terminal account transactions NEVER have PAYMENT_SETTLED_AT_TIMESTAMP — always use TIMESTAMP
-  const txnDateExpr = `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(btd.TIMESTAMP)))`;
-
-  if (dateType === 'payment_received') {
-    return `
-WITH raw_orders AS (
-  SELECT DISTINCT bo.ORDER_ID,
-    ROUND(bo.PAYMENTS_TOTAL_ORDER_AMOUNT / 100.0, 0) as total_revenue,
-    ROUND(bo.PAYMENTS_MARGIN / 100.0, 0) as red_margin,
-    CASE WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'Digital' WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Corporate' WHEN eu.user_type != 'CC_AGENT' THEN 'Hospital' ELSE 'Stan Command' END as lob,
-    CASE WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'DIGITAL' WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'CORPORATE' ELSE CASE WHEN UPPER(TRIM(IFNULL(n.CITY,'UNKNOWN'))) IN ('GUWAHATI','GHT') THEN 'GHT' WHEN UPPER(TRIM(IFNULL(n.CITY,'UNKNOWN'))) IN ('NAGPUR','NGP') THEN 'NGP' ELSE UPPER(TRIM(IFNULL(n.CITY,'UNKNOWN'))) END END as city
-  FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
-  LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED n ON bo.META_SITE_ID = n.SITE_ID
-  LEFT JOIN (SELECT email, user_type FROM BLADE.CORE.BLADE_USER_ENTITIES_PARSED QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC) = 1) eu ON COALESCE(NULLIF(bo.META_BOOKING_CREATED_BY,''), NULLIF(bo.META_ENQUIRY_CREATED_BY,''), bo.META_CREATED_BY) = eu.EMAIL
-  WHERE bo.META_ORG_ID = '${ORG_ID}' AND bo.META_IS_FREE_TRIP = 0 AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%') AND bo.META_ORDER_TYPE = 'BOOKING' AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
-),
-daily_txns AS (
-  SELECT ${txnDateExpr} as trend_date, btd.ORDER_ID,
-    ROUND(SUM(CASE WHEN bao.NAME IN ('Red Health', 'Red Health Finance Admin') THEN TRY_TO_NUMBER(NULLIF(btd.AMOUNT::STRING, '')) / 100.0 ELSE 0 END), 0) as collected
-  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA btd
-  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON btd.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
-  WHERE btd.ORG_ID = '${ORG_ID}' AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT') AND ${txnDateExpr} BETWEEN '${startDate}' AND '${endDate}'
-  GROUP BY ${txnDateExpr}, btd.ORDER_ID
-),
-filtered_orders AS (SELECT * FROM raw_orders WHERE 1=1 ${lobFilter} ${citiesFilter}),
-date_range AS (SELECT DATEADD(day, ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1, '${startDate}'::DATE) as trend_date FROM TABLE(GENERATOR(ROWCOUNT => 366)))
-SELECT dr.trend_date as TREND_DATE, COUNT(DISTINCT dt.ORDER_ID) as ORDERS, ROUND(SUM(COALESCE(fo.total_revenue, 0)), 0) as REVENUE, ROUND(SUM(COALESCE(fo.red_margin, 0)), 0) as MARGIN, ROUND(SUM(COALESCE(dt.collected, 0)), 0) as COLLECTED
-FROM date_range dr LEFT JOIN daily_txns dt ON dt.trend_date = dr.trend_date LEFT JOIN filtered_orders fo ON dt.ORDER_ID = fo.ORDER_ID
-WHERE dr.trend_date BETWEEN '${startDate}'::DATE AND '${endDate}'::DATE GROUP BY dr.trend_date ORDER BY dr.trend_date;
-    `;
-  }
+  // Trend by order creation date (IST), with collected amount from terminal account (all-time per order)
+  const orderDateExpr = `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP))`;
 
   return `
 WITH raw_orders AS (
   SELECT DISTINCT bo.ORDER_ID,
+    ${orderDateExpr} as order_date,
     ROUND(bo.PAYMENTS_TOTAL_ORDER_AMOUNT / 100.0, 0) as total_revenue,
     ROUND(bo.PAYMENTS_MARGIN / 100.0, 0) as red_margin,
     CASE WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'Digital' WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Corporate' WHEN eu.user_type != 'CC_AGENT' THEN 'Hospital' ELSE 'Stan Command' END as lob,
@@ -426,19 +369,20 @@ WITH raw_orders AS (
   LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED n ON bo.META_SITE_ID = n.SITE_ID
   LEFT JOIN (SELECT email, user_type FROM BLADE.CORE.BLADE_USER_ENTITIES_PARSED QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC) = 1) eu ON COALESCE(NULLIF(bo.META_BOOKING_CREATED_BY,''), NULLIF(bo.META_ENQUIRY_CREATED_BY,''), bo.META_CREATED_BY) = eu.EMAIL
   WHERE bo.META_ORG_ID = '${ORG_ID}' AND bo.META_IS_FREE_TRIP = 0 AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%') AND bo.META_ORDER_TYPE = 'BOOKING' AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
+  AND ${orderDateExpr} BETWEEN '${startDate}' AND '${endDate}'
 ),
-daily_txns AS (
-  SELECT ${txnDateExpr} as trend_date, btd.ORDER_ID,
-    ROUND(SUM(CASE WHEN bao.NAME IN ('Red Health', 'Red Health Finance Admin') THEN TRY_TO_NUMBER(NULLIF(btd.AMOUNT::STRING, '')) / 100.0 ELSE 0 END), 0) as collected
-  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA btd
-  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON btd.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
-  WHERE btd.ORG_ID = '${ORG_ID}' AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT') AND ${txnDateExpr} BETWEEN '${startDate}' AND '${endDate}'
-  GROUP BY ${txnDateExpr}, btd.ORDER_ID
+bank_alltime AS (
+  SELECT trm.ORDER_ID, ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100.0), 0) as collected
+  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
+  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
+  WHERE trm.ORG_ID = '${ORG_ID}' AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
+    AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
+  GROUP BY trm.ORDER_ID
 ),
-filtered_orders AS (SELECT * FROM raw_orders WHERE 1=1 ${lobFilter} ${citiesFilter}),
+filtered_orders AS (SELECT ro.*, COALESCE(ba.collected, 0) as collected FROM raw_orders ro LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID WHERE 1=1 ${lobFilter} ${citiesFilter}),
 date_range AS (SELECT DATEADD(day, ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1, '${startDate}'::DATE) as trend_date FROM TABLE(GENERATOR(ROWCOUNT => 366)))
-SELECT dr.trend_date as TREND_DATE, COUNT(DISTINCT dt.ORDER_ID) as ORDERS, ROUND(SUM(COALESCE(fo.total_revenue, 0)), 0) as REVENUE, ROUND(SUM(COALESCE(fo.red_margin, 0)), 0) as MARGIN, ROUND(SUM(COALESCE(dt.collected, 0)), 0) as COLLECTED
-FROM date_range dr LEFT JOIN daily_txns dt ON dt.trend_date = dr.trend_date LEFT JOIN filtered_orders fo ON dt.ORDER_ID = fo.ORDER_ID
+SELECT dr.trend_date as TREND_DATE, COUNT(DISTINCT fo.ORDER_ID) as ORDERS, ROUND(SUM(COALESCE(fo.total_revenue, 0)), 0) as REVENUE, ROUND(SUM(COALESCE(fo.red_margin, 0)), 0) as MARGIN, ROUND(SUM(COALESCE(fo.collected, 0)), 0) as COLLECTED
+FROM date_range dr LEFT JOIN filtered_orders fo ON fo.order_date = dr.trend_date
 WHERE dr.trend_date BETWEEN '${startDate}'::DATE AND '${endDate}'::DATE GROUP BY dr.trend_date ORDER BY dr.trend_date;
   `;
 }
@@ -451,7 +395,7 @@ SELECT
   ro.created_date as CREATED_DATE, ro.fulfilled_date as FULFILLED_DATE, ro.order_status as ORDER_STATUS,
   ro.total_revenue as TOTAL_REVENUE, ro.red_margin as RED_MARGIN,
   COALESCE(ba.bank_amount, 0) as RECEIVED_IN_BANK,
-  COALESCE(bp.bank_amount_period, 0) as AT_BANK_IN_PERIOD,
+
   COALESCE(io.internal_amount, 0) as PENDING_EMPLOYEE,
   COALESCE(ew.external_amount, 0) as PENDING_PARTNER,
   ro.red_margin - COALESCE(ba.bank_amount, 0) as PENDING_COLLECTION,
@@ -465,7 +409,7 @@ SELECT
   END as RISK_TAG
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 ORDER BY ro.city, ro.hospital_name, ro.created_date DESC;
@@ -488,7 +432,7 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(ba.bank_amount, 0)), 0) as TOTAL_RECEIVED_IN_BANK,
-  ROUND(SUM(COALESCE(bp.bank_amount_period, 0)), 0) as TOTAL_AT_BANK_IN_PERIOD,
+
   ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(ro.red_margin) - SUM(COALESCE(ba.bank_amount, 0)), 0) as PENDING_COLLECTION,
@@ -496,7 +440,7 @@ SELECT
   ROUND(SUM(COALESCE(bc.b2h_cost, 0)), 0) as B2H_COST
 FROM base_orders ro
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 LEFT JOIN b2h_costs bc ON ro.ORDER_ID = bc.ORDER_ID
@@ -523,7 +467,7 @@ SELECT
   ro.fulfilled_date as FULFILLED_DATE, ro.lob as LOB, ro.provider_type as PROVIDER_TYPE,
   ro.total_revenue as TOTAL_REVENUE, ro.red_margin as RED_MARGIN,
   COALESCE(ba.bank_amount, 0) as RECEIVED_IN_BANK,
-  COALESCE(bp.bank_amount_period, 0) as AT_BANK_IN_PERIOD,
+
   COALESCE(io.internal_amount, 0) as PENDING_EMPLOYEE,
   COALESCE(ew.external_amount, 0) as PENDING_PARTNER,
   ro.red_margin - COALESCE(ba.bank_amount, 0) as PENDING_COLLECTION,
@@ -542,7 +486,7 @@ SELECT
 FROM base_orders ro
 LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
 LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID
-LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
+
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 ORDER BY ro.city, ro.created_date DESC, ro.ORDER_ID;
