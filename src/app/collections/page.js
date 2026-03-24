@@ -194,7 +194,11 @@ export default function CollectionsPage() {
       const v = String(value).toUpperCase();
       return v === 'ACTIVE' ? '#16a34a' : '#dc2626';
     }
-    if (upper.includes('PENDING') && Number(value) > 0) return '#dc2626';
+    if (upper.includes('PENDING')) {
+      const num = Number(value);
+      if (num > 0) return '#dc2626';
+      if (num < 0) return '#16a34a';
+    }
     return '#000';
   };
 
@@ -207,7 +211,7 @@ export default function CollectionsPage() {
     if (filteredData.length === 0) return '';
     const upper = colName.toUpperCase();
     if (upper.includes('EFFICIENCY') || upper.includes('PCT')) {
-      const bankCol = getCols().find(c => c.toUpperCase() === 'TOTAL_AT_BANK');
+      const bankCol = getCols().find(c => c.toUpperCase() === 'TOTAL_RECEIVED_IN_BANK');
       const marginCol = getCols().find(c => c.toUpperCase() === 'TOTAL_RED_MARGIN');
       if (bankCol && marginCol) {
         const totalBank = filteredData.reduce((acc, row) => acc + (Number(row[bankCol]) || 0), 0);
@@ -233,7 +237,8 @@ export default function CollectionsPage() {
       { label: 'Total Orders', key: 'TOTAL_ORDERS', color: '#3b82f6' },
       { label: 'Total Revenue', key: 'TOTAL_REVENUE', color: '#3b82f6' },
       { label: 'Total RED Margin', key: 'TOTAL_RED_MARGIN', color: '#16a34a' },
-      { label: 'Total at Bank', key: 'TOTAL_AT_BANK', color: '#16a34a' },
+      { label: 'Received in Bank (All-Time)', key: 'TOTAL_RECEIVED_IN_BANK', color: '#16a34a' },
+      { label: 'At Bank (This Period)', key: 'TOTAL_AT_BANK_IN_PERIOD', color: '#059669' },
       { label: 'Pending Employee', key: 'TOTAL_PENDING_EMPLOYEE', color: '#ea8c00' },
       { label: 'Pending Partner', key: 'TOTAL_PENDING_PARTNER', color: '#ea8c00' },
       { label: 'Pending Collection', key: 'PENDING_COLLECTION', color: '#dc2626' },
@@ -245,13 +250,18 @@ export default function CollectionsPage() {
         const col = getCols().find(c => c.toUpperCase() === kpi.key);
         if (!col) return null;
         if (kpi.key === 'COLLECTION_EFFICIENCY_PCT') {
-          const bankCol = getCols().find(c => c.toUpperCase() === 'TOTAL_AT_BANK');
+          const bankCol = getCols().find(c => c.toUpperCase() === 'TOTAL_RECEIVED_IN_BANK');
           const marginCol = getCols().find(c => c.toUpperCase() === 'TOTAL_RED_MARGIN');
           const totalBank = data.reduce((acc, row) => acc + (Number(row[bankCol]) || 0), 0);
           const totalMargin = data.reduce((acc, row) => acc + (Number(row[marginCol]) || 0), 0);
           const eff = totalMargin > 0 ? (100 * totalBank / totalMargin) : 0;
           const color = eff >= 80 ? '#16a34a' : eff >= 50 ? '#ea8c00' : '#dc2626';
           return { label: kpi.label, value: eff.toFixed(1) + '%', color };
+        }
+        if (kpi.key === 'PENDING_COLLECTION') {
+          const sum = data.reduce((acc, row) => acc + (Number(row[col]) || 0), 0);
+          const color = sum <= 0 ? '#16a34a' : '#dc2626';
+          return { label: kpi.label, value: fmtAmt(sum), color };
         }
         const sum = data.reduce((acc, row) => acc + (Number(row[col]) || 0), 0);
         return { label: kpi.label, value: fmtAmt(sum), color: kpi.color };
