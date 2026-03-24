@@ -1,19 +1,26 @@
 // Red Health Collections & Payments Dashboard Query Builder
 // Snowflake SQL query builder with parameter structure:
 // (startDate, endDate, dateType, lob, cities)
-// dateType: 'wallet' (order created date) or 'payment' (fulfillment date)
+// dateType: 'txn_created' (transaction created date) or 'payment_received' (payment settled in terminal account)
+// Date filter is on TRANSACTION dates (not order dates)
 
 import { ORG_ID } from './constants';
 
 // HELPER FUNCTIONS
 
-function buildDateFilter(dateType, startDate, endDate) {
-  if (dateType === 'wallet') {
-    return `created_date BETWEEN '${startDate}' AND '${endDate}'`;
-  } else if (dateType === 'payment') {
-    return `fulfilled_date BETWEEN '${startDate}' AND '${endDate}'`;
+/**
+ * Build transaction date filter clause for use inside transaction CTEs
+ * @param {string} dateType - 'txn_created' or 'payment_received'
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate - YYYY-MM-DD
+ * @returns {string} AND clause for transaction date filtering
+ */
+function buildTxnDateFilter(dateType, startDate, endDate) {
+  if (dateType === 'payment_received') {
+    return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', btd.PAYMENT_SETTLED_AT_TIMESTAMP)) BETWEEN '${startDate}' AND '${endDate}'`;
   }
-  return '1=1';
+  // Default: transaction created date
+  return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(btd.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'`;
 }
 
 function buildLOBFilter(lob) {
@@ -44,7 +51,7 @@ function buildCitiesFilter(cities) {
 // BASE CTE BUILDER
 
 function buildBaseCTE(startDate, endDate, dateType, lob, cities) {
-  const dateFilter = buildDateFilter(dateType, startDate, endDate);
+  const txnDateFilter = buildTxnDateFilter(dateType, startDate, endDate);
   const lobFilter = buildLOBFilter(lob);
   const citiesFilter = buildCitiesFilter(cities);
 
@@ -78,8 +85,10 @@ WITH raw_orders AS (
     -- Partner / Ambulance service name
     COALESCE(NULLIF(TRIM(bo.ASSIGNMENT_AMBULANCE_SERVICE_NAME), ''), 'Unknown Partner') as partner_name,
 
-    -- Computed date fields (IST)
+    -- Order created date (IST) - for display & ageing calculation
     DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) as created_date,
+
+    -- Service fulfilled date (IST) - for display
     COALESCE(
       TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.ASSIGNMENT_REACHEDDROPOFFAT_TIMESTAMP)),
       TO_DATE(bo.FULFILLMENT_FULFILLED_AT_IST)
@@ -137,9 +146,19 @@ WITH raw_orders AS (
     AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
 ),
 
+-- Orders that have transactions in the selected date range
+orders_in_scope AS (
+  SELECT DISTINCT btd.ORDER_ID
+  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA btd
+  WHERE btd.ORG_ID = '${ORG_ID}'
+    AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'OFFLINE_ORDER_PAYMENTS')
+    ${txnDateFilter}
+),
+
 base_orders AS (
-  SELECT * FROM raw_orders
-  WHERE ${dateFilter}
+  SELECT ro.* FROM raw_orders ro
+  INNER JOIN orders_in_scope ois ON ro.ORDER_ID = ois.ORDER_ID
+  WHERE 1=1
     ${lobFilter}
     ${citiesFilter}
 ),
@@ -152,9 +171,11 @@ company_receipts AS (
   JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA ba
     ON btd.CREDIT_ACCOUNT_ID = ba.ACCOUNT_ID
   WHERE btd.ORG_ID = '${ORG_ID}'
+    AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'OFFLINE_ORDER_PAYMENTS')
     AND btd.PAYMENT_STATE = 'CLEARED'
     AND ba.ENTITY_TYPE = 'COMPANY'
     AND btd.TRANSACTION_MODE != 'KIND'
+    ${txnDateFilter}
   GROUP BY btd.ORDER_ID
 ),
 
@@ -166,9 +187,11 @@ internal_outstanding AS (
   JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA ba
     ON btd.CREDIT_ACCOUNT_ID = ba.ACCOUNT_ID
   WHERE btd.ORG_ID = '${ORG_ID}'
+    AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'OFFLINE_ORDER_PAYMENTS')
     AND btd.PAYMENT_STATE = 'OUTSTANDING'
     AND btd.IS_TRANSACTION_TERMINAL = FALSE
     AND ba.ENTITY_TYPE NOT IN ('PARTNER', 'ADMIN')
+    ${txnDateFilter}
   GROUP BY btd.ORDER_ID
 ),
 
@@ -180,8 +203,10 @@ external_wallet AS (
   JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA ba
     ON btd.CREDIT_ACCOUNT_ID = ba.ACCOUNT_ID
   WHERE btd.ORG_ID = '${ORG_ID}'
+    AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'OFFLINE_ORDER_PAYMENTS')
     AND btd.PAYMENT_STATE = 'OUTSTANDING'
     AND ba.ENTITY_TYPE = 'PARTNER'
+    ${txnDateFilter}
   GROUP BY btd.ORDER_ID
 )
   `;
@@ -202,8 +227,8 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
-  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
-  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END), 0) as TOTAL_PENDING_EMPLOYEE,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
@@ -237,8 +262,8 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
-  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
-  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END), 0) as TOTAL_PENDING_EMPLOYEE,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
@@ -273,8 +298,8 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
-  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
-  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END), 0) as TOTAL_PENDING_EMPLOYEE,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
@@ -311,8 +336,8 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
-  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
-  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END), 0) as TOTAL_PENDING_EMPLOYEE,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
@@ -358,8 +383,8 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
-  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
-  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END), 0) as TOTAL_PENDING_EMPLOYEE,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
@@ -381,13 +406,69 @@ ORDER BY EMPLOYEE_EMAIL, ro.city, ro.lob;
 }
 
 /**
- * Trend Query - Daily breakdown
- * Uses fixed GENERATOR(ROWCOUNT => 366) to avoid Snowflake constant requirement
+ * Trend Query - Daily breakdown by transaction date
+ * Groups by the selected date type (txn created or payment settled)
  */
 export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, cities) {
-  const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
+  const lobFilter = buildLOBFilter(lob);
+  const citiesFilter = buildCitiesFilter(cities);
 
-  return `${baseCTE},
+  const txnDateExpr = dateType === 'payment_received'
+    ? `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', btd.PAYMENT_SETTLED_AT_TIMESTAMP))`
+    : `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(btd.TIMESTAMP)))`;
+
+  return `
+WITH raw_orders AS (
+  SELECT DISTINCT
+    bo.ORDER_ID,
+    ROUND(bo.PAYMENTS_TOTAL_ORDER_AMOUNT / 100.0, 0) as total_revenue,
+    ROUND(bo.PAYMENTS_MARGIN / 100.0, 0) as red_margin,
+    CASE
+      WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'Digital'
+      WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Corporate'
+      WHEN eu.user_type != 'CC_AGENT' THEN 'Hospital'
+      ELSE 'Stan Command'
+    END as lob,
+    CASE
+      WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'DIGITAL'
+      WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'CORPORATE'
+      ELSE CASE
+        WHEN UPPER(TRIM(IFNULL(n.CITY, 'UNKNOWN'))) IN ('GUWAHATI', 'GHT') THEN 'GHT'
+        WHEN UPPER(TRIM(IFNULL(n.CITY, 'UNKNOWN'))) IN ('NAGPUR', 'NGP') THEN 'NGP'
+        ELSE UPPER(TRIM(IFNULL(n.CITY, 'UNKNOWN')))
+      END
+    END as city
+  FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
+  LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED n ON bo.META_SITE_ID = n.SITE_ID
+  LEFT JOIN (
+    SELECT email, user_type FROM BLADE.CORE.BLADE_USER_ENTITIES_PARSED
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC) = 1
+  ) eu ON COALESCE(NULLIF(bo.META_BOOKING_CREATED_BY,''), NULLIF(bo.META_ENQUIRY_CREATED_BY,''), bo.META_CREATED_BY) = eu.EMAIL
+  WHERE bo.META_ORG_ID = '${ORG_ID}'
+    AND bo.META_IS_FREE_TRIP = 0
+    AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%')
+    AND bo.META_ORDER_TYPE = 'BOOKING'
+    AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
+),
+
+daily_txns AS (
+  SELECT
+    ${txnDateExpr} as trend_date,
+    btd.ORDER_ID,
+    ROUND(SUM(CASE WHEN ba.ENTITY_TYPE = 'COMPANY' AND btd.PAYMENT_STATE = 'CLEARED' AND btd.TRANSACTION_MODE != 'KIND'
+      THEN btd.AMOUNT / 100.0 ELSE 0 END), 0) as collected
+  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA btd
+  JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA ba ON btd.CREDIT_ACCOUNT_ID = ba.ACCOUNT_ID
+  WHERE btd.ORG_ID = '${ORG_ID}'
+    AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'OFFLINE_ORDER_PAYMENTS')
+    AND ${txnDateExpr} BETWEEN '${startDate}' AND '${endDate}'
+  GROUP BY ${txnDateExpr}, btd.ORDER_ID
+),
+
+filtered_orders AS (
+  SELECT * FROM raw_orders
+  WHERE 1=1 ${lobFilter} ${citiesFilter}
+),
 
 date_range AS (
   SELECT DATEADD(day, ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1, '${startDate}'::DATE) as trend_date
@@ -396,13 +477,13 @@ date_range AS (
 
 SELECT
   dr.trend_date as TREND_DATE,
-  COUNT(DISTINCT ro.ORDER_ID) as ORDERS,
-  ROUND(SUM(COALESCE(ro.total_revenue, 0)), 0) as REVENUE,
-  ROUND(SUM(COALESCE(ro.red_margin, 0)), 0) as MARGIN,
-  ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as COLLECTED
+  COUNT(DISTINCT dt.ORDER_ID) as ORDERS,
+  ROUND(SUM(COALESCE(fo.total_revenue, 0)), 0) as REVENUE,
+  ROUND(SUM(COALESCE(fo.red_margin, 0)), 0) as MARGIN,
+  ROUND(SUM(COALESCE(dt.collected, 0)), 0) as COLLECTED
 FROM date_range dr
-LEFT JOIN base_orders ro ON ro.created_date = dr.trend_date
-LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
+LEFT JOIN daily_txns dt ON dt.trend_date = dr.trend_date
+LEFT JOIN filtered_orders fo ON dt.ORDER_ID = fo.ORDER_ID
 WHERE dr.trend_date BETWEEN '${startDate}'::DATE AND '${endDate}'::DATE
 GROUP BY dr.trend_date
 ORDER BY dr.trend_date;
@@ -427,8 +508,8 @@ SELECT
   ro.total_revenue as TOTAL_REVENUE,
   ro.red_margin as RED_MARGIN,
   COALESCE(cr.bank_amount, 0) as AT_BANK,
-  COALESCE(io.internal_amount, 0) as PENDING_EMPLOYEE,
-  COALESCE(ew.external_amount, 0) as PENDING_PARTNER,
+  CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END as PENDING_EMPLOYEE,
+  CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END as PENDING_PARTNER,
   GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0)) as PENDING_COLLECTION,
   DATEDIFF(day, ro.created_date, CURRENT_DATE()) as DAYS_OUTSTANDING,
   CASE
@@ -474,8 +555,8 @@ SELECT
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
   ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
-  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
-  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END), 0) as TOTAL_PENDING_EMPLOYEE,
+  ROUND(SUM(CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
     100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
@@ -520,8 +601,8 @@ SELECT
   ro.total_revenue as TOTAL_REVENUE,
   ro.red_margin as RED_MARGIN,
   COALESCE(cr.bank_amount, 0) as TOTAL_AT_BANK,
-  COALESCE(io.internal_amount, 0) as PENDING_EMPLOYEE,
-  COALESCE(ew.external_amount, 0) as PENDING_PARTNER,
+  CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(io.internal_amount, 0) END as PENDING_EMPLOYEE,
+  CASE WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 0 ELSE COALESCE(ew.external_amount, 0) END as PENDING_PARTNER,
   GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0)) as PENDING_COLLECTION,
   CASE
     WHEN COALESCE(cr.bank_amount, 0) >= ro.red_margin THEN 'Collected'
