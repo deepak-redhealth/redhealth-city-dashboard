@@ -49,9 +49,10 @@ function buildBaseCTE(startDate, endDate, dateType, lob, cities) {
   const citiesFilter = buildCitiesFilter(cities);
 
   // Period date filter for bank_period CTE
-  const periodDateFilter = dateType === 'payment_received'
-    ? `AND trm.PAYMENT_SETTLED_AT_TIMESTAMP IS NOT NULL AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', trm.PAYMENT_SETTLED_AT_TIMESTAMP)) BETWEEN '${startDate}' AND '${endDate}'`
-    : `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'`;
+  // Terminal account transactions NEVER have PAYMENT_SETTLED_AT_TIMESTAMP populated (always NULL).
+  // TO_TIMESTAMP(trm.TIMESTAMP) is when the payment was received at the terminal account (bank).
+  // So we always use TIMESTAMP for the bank_period CTE regardless of dateType.
+  const periodDateFilter = `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'`;
 
   return `
 WITH raw_orders AS (
@@ -188,15 +189,24 @@ internal_outstanding AS (
   GROUP BY tr.ORDER_ID
 ),
 
--- WALLET OPERATOR: Partner wallet from BLADE_PARTNER_OUTSTANDING_LEDGER_DATA
--- Latest record per order — ledger reflects true outstanding
+-- WALLET OPERATOR: Partner wallet from BLADE_PARTNER_OUTSTANDING_LEDGER
+-- Latest record per order, only BOOKING + COMPLETED orders, excluding test cases
 external_wallet AS (
   SELECT
     po.ORDER_ID,
-    ROUND(po.AMOUNT / 100.0, 0) AS external_amount
-  FROM BLADE.RAW.BLADE_PARTNER_OUTSTANDING_LEDGER_DATA po
-  WHERE po.ORG_ID = '${ORG_ID}'
-  QUALIFY po.CREATED_AT = MAX(po.CREATED_AT) OVER (PARTITION BY po.ORDER_ID)
+    ROUND(SUM(po.AMOUNT / 100.0), 0) AS external_amount
+  FROM (
+    SELECT po.*
+    FROM BLADE.RAW.BLADE_PARTNER_OUTSTANDING_LEDGER po
+    WHERE po.ORG_ID = '${ORG_ID}'
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY po.ORDER_ID ORDER BY po.CREATED_AT DESC) = 1
+  ) po
+  LEFT JOIN BLADE.CORE.RED_BLADE_ORDERS_FINAL bo ON po.ORDER_ID = bo.ORDER_ID
+  WHERE bo.META_ORDER_TYPE = 'BOOKING'
+    AND bo.META_ORDER_STATUS = 'COMPLETED'
+    AND po.AMOUNT <> 0
+    AND UPPER(COALESCE(bo.META_SPECIAL_CATEGORY, '')) NOT IN ('TEST CASE', 'TEST_CASE')
+  GROUP BY po.ORDER_ID
 )
   `;
 }
