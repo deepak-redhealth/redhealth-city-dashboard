@@ -383,8 +383,8 @@ ORDER BY EMPLOYEE_EMAIL, ro.city, ro.lob;
 export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, cities) {
   const lobFilter = buildLOBFilter(lob);
   const citiesFilter = buildCitiesFilter(cities);
+  // Terminal account transactions NEVER have PAYMENT_SETTLED_AT_TIMESTAMP — always use TIMESTAMP
   const txnDateExpr = `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(btd.TIMESTAMP)))`;
-  const paymentSettledDateExpr = `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', btd.PAYMENT_SETTLED_AT_TIMESTAMP))`;
 
   if (dateType === 'payment_received') {
     return `
@@ -400,12 +400,12 @@ WITH raw_orders AS (
   WHERE bo.META_ORG_ID = '${ORG_ID}' AND bo.META_IS_FREE_TRIP = 0 AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%') AND bo.META_ORDER_TYPE = 'BOOKING' AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
 ),
 daily_txns AS (
-  SELECT ${paymentSettledDateExpr} as trend_date, btd.ORDER_ID,
+  SELECT ${txnDateExpr} as trend_date, btd.ORDER_ID,
     ROUND(SUM(CASE WHEN bao.NAME IN ('Red Health', 'Red Health Finance Admin') THEN TRY_TO_NUMBER(NULLIF(btd.AMOUNT::STRING, '')) / 100.0 ELSE 0 END), 0) as collected
   FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA btd
   LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON btd.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
-  WHERE btd.ORG_ID = '${ORG_ID}' AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT') AND btd.PAYMENT_SETTLED_AT_TIMESTAMP IS NOT NULL AND ${paymentSettledDateExpr} BETWEEN '${startDate}' AND '${endDate}'
-  GROUP BY ${paymentSettledDateExpr}, btd.ORDER_ID
+  WHERE btd.ORG_ID = '${ORG_ID}' AND btd.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT') AND ${txnDateExpr} BETWEEN '${startDate}' AND '${endDate}'
+  GROUP BY ${txnDateExpr}, btd.ORDER_ID
 ),
 filtered_orders AS (SELECT * FROM raw_orders WHERE 1=1 ${lobFilter} ${citiesFilter}),
 date_range AS (SELECT DATEADD(day, ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1, '${startDate}'::DATE) as trend_date FROM TABLE(GENERATOR(ROWCOUNT => 366)))
