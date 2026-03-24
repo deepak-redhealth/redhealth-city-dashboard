@@ -500,6 +500,7 @@ LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 LEFT JOIN b2h_costs bc ON ro.ORDER_ID = bc.ORDER_ID
+WHERE ro.META_IS_BILL_TO_PATIENT = FALSE
 GROUP BY ro.city, ro.hospital_name, ro.lob, ro.provider_type, CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END
 ORDER BY ro.city, ro.hospital_name, ro.lob;
   `;
