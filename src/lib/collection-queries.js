@@ -1,24 +1,12 @@
 // Red Health Collections & Payments Dashboard Query Builder
 // Snowflake SQL query builder with parameter structure:
 // (startDate, endDate, dateType, lob, cities)
-// dateType: 'wallet' or 'payment'
-//
-// FIXES APPLIED:
-// 1. COUNTIF → COUNT_IF (Snowflake syntax)
-// 2. BLADE_USER_ENTITIES (RAW) → BLADE_USER_ENTITIES_PARSED (CORE), join by EMAIL not USER_ID
-// 3. LOB logic matches funnel query pattern (SITE_TYPE_DESC + user_type check)
-// 4. GENERATOR ROWCOUNT uses fixed 366 instead of dynamic DATEDIFF
-// 5. City normalization matches funnel query (GHT/NGP aliases)
-// 6. Hospital name from organization entities NAME field
-// 7. Employee name/email from BLADE_USER_ENTITIES_PARSED joined by EMAIL
+// dateType: 'wallet' (order created date) or 'payment' (fulfillment date)
 
 import { ORG_ID } from './constants';
 
 // HELPER FUNCTIONS
 
-/**
- * Build date filter for wallet or payment dates
- */
 function buildDateFilter(dateType, startDate, endDate) {
   if (dateType === 'wallet') {
     return `created_date BETWEEN '${startDate}' AND '${endDate}'`;
@@ -28,20 +16,25 @@ function buildDateFilter(dateType, startDate, endDate) {
   return '1=1';
 }
 
-/**
- * Build LOB filter clause
- */
 function buildLOBFilter(lob) {
   if (!lob) return '';
-  if (lob === 'Ground') {
+
+  // Support comma-separated multiple LOBs
+  const lobs = lob.split(',').map(l => l.trim()).filter(Boolean);
+  if (lobs.length === 0) return '';
+
+  if (lobs.includes('Ground')) {
     return `AND lob NOT IN ('Digital', 'Corporate')`;
   }
-  return `AND lob = '${lob}'`;
+
+  if (lobs.length === 1) {
+    return `AND lob = '${lobs[0]}'`;
+  }
+
+  const lobList = lobs.map(l => `'${l}'`).join(', ');
+  return `AND lob IN (${lobList})`;
 }
 
-/**
- * Build cities filter clause
- */
 function buildCitiesFilter(cities) {
   if (!cities || cities.trim() === '') return '';
   const cityList = cities.split(',').map(c => `'${c.trim()}'`).join(', ');
@@ -50,11 +43,6 @@ function buildCitiesFilter(cities) {
 
 // BASE CTE BUILDER
 
-/**
- * Build the base CTE with all calculations
- * Uses BLADE_USER_ENTITIES_PARSED (CORE) joined by EMAIL for LOB determination
- * Uses BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED for city/hospital
- */
 function buildBaseCTE(startDate, endDate, dateType, lob, cities) {
   const dateFilter = buildDateFilter(dateType, startDate, endDate);
   const lobFilter = buildLOBFilter(lob);
@@ -69,6 +57,7 @@ WITH raw_orders AS (
     bo.PAYMENTS_MARGIN as margin_paisa,
     bo.META_IS_BILL_TO_PATIENT,
     bo.ASSIGNMENT_PROVIDER_TYPE,
+    bo.ASSIGNMENT_AMBULANCE_SERVICE_NAME,
     bo.TOTAL_ADDONS_PRICE,
     bo.META_CREATED_AT_TIMESTAMP,
     bo.ASSIGNMENT_REACHEDDROPOFFAT_TIMESTAMP,
@@ -86,7 +75,10 @@ WITH raw_orders AS (
     -- Hospital name from organization entities
     COALESCE(NULLIF(TRIM(n.NAME), ''), 'Unknown Hospital') as hospital_name,
 
-    -- Computed date fields
+    -- Partner / Ambulance service name
+    COALESCE(NULLIF(TRIM(bo.ASSIGNMENT_AMBULANCE_SERVICE_NAME), ''), 'Unknown Partner') as partner_name,
+
+    -- Computed date fields (IST)
     DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) as created_date,
     COALESCE(
       TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.ASSIGNMENT_REACHEDDROPOFFAT_TIMESTAMP)),
@@ -97,15 +89,15 @@ WITH raw_orders AS (
     ROUND(bo.PAYMENTS_TOTAL_ORDER_AMOUNT / 100.0, 0) as total_revenue,
     ROUND(bo.PAYMENTS_MARGIN / 100.0, 0) as red_margin,
 
-    -- LOB determination (matches funnel query logic)
+    -- LOB determination (Corporate is its own LOB)
     CASE
       WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'Digital'
-      WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Stan Command'
+      WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Corporate'
       WHEN eu.user_type != 'CC_AGENT' THEN 'Hospital'
       ELSE 'Stan Command'
     END as lob,
 
-    -- City determination with normalization (matches funnel query)
+    -- City determination with normalization
     CASE
       WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'DIGITAL'
       WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'CORPORATE'
@@ -198,7 +190,41 @@ external_wallet AS (
 // EXPORTED QUERY BUILDERS
 
 /**
- * Collections Summary Query - GROUP BY CITY, LOB
+ * LOB Summary Query - GROUP BY LOB only
+ */
+export function buildCollectionsLOBSummaryQuery(startDate, endDate, dateType, lob, cities) {
+  const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
+
+  return `${baseCTE}
+SELECT
+  ro.lob as LOB,
+  COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
+  ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
+  ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
+  ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
+  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
+  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
+  ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
+  ROUND(
+    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
+  ) as COLLECTION_EFFICIENCY_PCT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3) as AGE_0_3_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7) as AGE_4_7_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15) as AGE_8_15_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30) as AGE_16_30_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30) as AGE_30PLUS_COUNT,
+  ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
+FROM base_orders ro
+LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
+LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
+LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
+GROUP BY ro.lob
+ORDER BY ro.lob;
+  `;
+}
+
+/**
+ * City Summary Query - GROUP BY CITY, LOB
  */
 export function buildCollectionsSummaryQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -215,28 +241,14 @@ SELECT
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
-    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
-    2
+    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
-  ) as AGE_0_3_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
-  ) as AGE_4_7_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
-  ) as AGE_8_15_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
-  ) as AGE_16_30_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
-  ) as AGE_30PLUS_COUNT,
-  ROUND(
-    AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())),
-    0
-  ) as AVG_COLLECTION_TAT_DAYS
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3) as AGE_0_3_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7) as AGE_4_7_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15) as AGE_8_15_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30) as AGE_16_30_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30) as AGE_30PLUS_COUNT,
+  ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
@@ -247,7 +259,7 @@ ORDER BY ro.city, ro.lob;
 }
 
 /**
- * Collections by Hospital Query - GROUP BY CITY, HOSPITAL_NAME, LOB
+ * Hospital Query - GROUP BY CITY, HOSPITAL_NAME, LOB
  */
 export function buildCollectionsHospitalQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -265,28 +277,14 @@ SELECT
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
-    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
-    2
+    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
-  ) as AGE_0_3_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
-  ) as AGE_4_7_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
-  ) as AGE_8_15_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
-  ) as AGE_16_30_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
-  ) as AGE_30PLUS_COUNT,
-  ROUND(
-    AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())),
-    0
-  ) as AVG_COLLECTION_TAT_DAYS
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3) as AGE_0_3_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7) as AGE_4_7_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15) as AGE_8_15_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30) as AGE_16_30_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30) as AGE_30PLUS_COUNT,
+  ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
@@ -297,7 +295,8 @@ ORDER BY ro.city, ro.hospital_name, ro.lob;
 }
 
 /**
- * Collections by Partner Query - GROUP BY CITY, HOSPITAL_NAME, PROVIDER_TYPE, LOB
+ * Partner Query - GROUP BY CITY, PARTNER_NAME, LOB
+ * Uses ASSIGNMENT_AMBULANCE_SERVICE_NAME for partner name (no hospital details)
  */
 export function buildCollectionsPartnerQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -305,7 +304,7 @@ export function buildCollectionsPartnerQuery(startDate, endDate, dateType, lob, 
   return `${baseCTE}
 SELECT
   ro.city as CITY,
-  ro.hospital_name as HOSPITAL_NAME,
+  CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END as PARTNER_NAME,
   ro.provider_type as PROVIDER_TYPE,
   ro.lob as LOB,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
@@ -316,40 +315,26 @@ SELECT
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
-    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
-    2
+    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
-  ) as AGE_0_3_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
-  ) as AGE_4_7_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
-  ) as AGE_8_15_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
-  ) as AGE_16_30_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
-  ) as AGE_30PLUS_COUNT,
-  ROUND(
-    AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())),
-    0
-  ) as AVG_COLLECTION_TAT_DAYS
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3) as AGE_0_3_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7) as AGE_4_7_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15) as AGE_8_15_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30) as AGE_16_30_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30) as AGE_30PLUS_COUNT,
+  ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY ro.city, ro.hospital_name, ro.provider_type, ro.lob
-ORDER BY ro.city, ro.hospital_name, ro.provider_type, ro.lob;
+GROUP BY ro.city, CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END, ro.provider_type, ro.lob
+ORDER BY ro.city, PARTNER_NAME, ro.lob;
   `;
 }
 
 /**
- * Collections by Employee Query
- * Uses BLADE_USER_ENTITIES_PARSED (CORE) joined by EMAIL for employee details
+ * Employee Query - GROUP BY EMPLOYEE, CITY, LOB
+ * Uses BLADE_USER_ENTITIES_PARSED (CORE) joined by EMAIL
  */
 export function buildCollectionsEmployeeQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -377,28 +362,14 @@ SELECT
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
-    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
-    2
+    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
   ) as COLLECTION_EFFICIENCY_PCT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
-  ) as AGE_0_3_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
-  ) as AGE_4_7_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
-  ) as AGE_8_15_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
-  ) as AGE_16_30_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
-  ) as AGE_30PLUS_COUNT,
-  ROUND(
-    AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())),
-    0
-  ) as AVG_COLLECTION_TAT_DAYS
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3) as AGE_0_3_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7) as AGE_4_7_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15) as AGE_8_15_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30) as AGE_16_30_COUNT,
+  COUNT_IF(DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30) as AGE_30PLUS_COUNT,
+  ROUND(AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())), 0) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
 LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
 LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
@@ -410,8 +381,8 @@ ORDER BY EMPLOYEE_EMAIL, ro.city, ro.lob;
 }
 
 /**
- * Collections Trend Query - Daily breakdown
- * Uses fixed GENERATOR(ROWCOUNT => 366) to avoid Snowflake constant requirement error
+ * Trend Query - Daily breakdown
+ * Uses fixed GENERATOR(ROWCOUNT => 366) to avoid Snowflake constant requirement
  */
 export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -439,7 +410,7 @@ ORDER BY dr.trend_date;
 }
 
 /**
- * Collections Ageing Detail Query - Per-order detail with risk tags
+ * Ageing Detail Query - Per-order detail with city + hospital + risk tags
  */
 export function buildCollectionsAgeingDetailQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -448,6 +419,7 @@ export function buildCollectionsAgeingDetailQuery(startDate, endDate, dateType, 
 SELECT
   ro.city as CITY,
   ro.hospital_name as HOSPITAL_NAME,
+  ro.lob as LOB,
   ro.ORDER_ID,
   ro.created_date as CREATED_DATE,
   ro.fulfilled_date as FULFILLED_DATE,
@@ -475,7 +447,7 @@ ORDER BY ro.city, ro.hospital_name, ro.created_date DESC;
 }
 
 /**
- * Collections B2H Summary Query - With KIND transaction costs
+ * B2H Summary Query - With city, hospital, partner, LOB and KIND transaction costs
  */
 export function buildCollectionsB2HSummaryQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -497,6 +469,7 @@ SELECT
   ro.hospital_name as HOSPITAL_NAME,
   ro.lob as LOB,
   ro.provider_type as PROVIDER_TYPE,
+  CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END as PARTNER_NAME,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
@@ -505,8 +478,7 @@ SELECT
   ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
   ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
   ROUND(
-    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
-    2
+    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0), 2
   ) as COLLECTION_EFFICIENCY_PCT,
   ROUND(SUM(COALESCE(bc.b2h_cost, 0)), 0) as B2H_COST
 FROM base_orders ro
@@ -514,61 +486,13 @@ LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 LEFT JOIN b2h_costs bc ON ro.ORDER_ID = bc.ORDER_ID
-GROUP BY ro.city, ro.hospital_name, ro.lob, ro.provider_type
-ORDER BY ro.city, ro.hospital_name, ro.lob, ro.provider_type;
+GROUP BY ro.city, ro.hospital_name, ro.lob, ro.provider_type, CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END
+ORDER BY ro.city, ro.hospital_name, ro.lob;
   `;
 }
 
 /**
- * Collections LOB Summary Query - GROUP BY LOB only
- */
-export function buildCollectionsLOBSummaryQuery(startDate, endDate, dateType, lob, cities) {
-  const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
-
-  return `${baseCTE}
-SELECT
-  ro.lob as LOB,
-  COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
-  ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
-  ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
-  ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as TOTAL_AT_BANK,
-  ROUND(SUM(COALESCE(io.internal_amount, 0)), 0) as TOTAL_PENDING_EMPLOYEE,
-  ROUND(SUM(COALESCE(ew.external_amount, 0)), 0) as TOTAL_PENDING_PARTNER,
-  ROUND(SUM(GREATEST(0, ro.red_margin - COALESCE(cr.bank_amount, 0))), 0) as PENDING_COLLECTION,
-  ROUND(
-    100.0 * SUM(COALESCE(cr.bank_amount, 0)) / NULLIF(SUM(ro.red_margin), 0),
-    2
-  ) as COLLECTION_EFFICIENCY_PCT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 0 AND 3
-  ) as AGE_0_3_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 4 AND 7
-  ) as AGE_4_7_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 8 AND 15
-  ) as AGE_8_15_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) BETWEEN 16 AND 30
-  ) as AGE_16_30_COUNT,
-  COUNT_IF(
-    DATEDIFF(day, ro.created_date, CURRENT_DATE()) > 30
-  ) as AGE_30PLUS_COUNT,
-  ROUND(
-    AVG(DATEDIFF(day, ro.created_date, CURRENT_DATE())),
-    0
-  ) as AVG_COLLECTION_TAT_DAYS
-FROM base_orders ro
-LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
-LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
-LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY ro.lob
-ORDER BY ro.lob;
-  `;
-}
-
-/**
- * Collections Raw Report Query - Per-order details with employee, city, hospital
+ * Raw Report Query - Per-order details with agent, partner, city, hospital
  */
 export function buildCollectionsRawReportQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -586,6 +510,7 @@ SELECT
   COALESCE(ed.email, ro.created_by_email, 'Unknown') as AGENT_EMAIL,
   ro.city as CITY,
   ro.hospital_name as HOSPITAL_NAME,
+  CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END as PARTNER_NAME,
   ro.ORDER_ID,
   ro.order_status as ORDER_STATUS,
   ro.created_date as CREATED_DATE,
