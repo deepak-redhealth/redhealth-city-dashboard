@@ -1,9 +1,9 @@
 // Red Health Collections & Payments Dashboard Query Builder
 // Snowflake SQL query builder with parameter structure:
 // (startDate, endDate, lob, cities)
-// Date filter: Order creation date (META_CREATED_AT_TIMESTAMP converted UTC→IST)
-// Transaction TIMESTAMP in BLADE_TRANSACTIONS_DATA is unreliable for date scoping
-// (gets overwritten to latest sync date), so we scope orders by their creation date.
+// Date filter: Terminal account transaction date (payment received at bank)
+// Uses TO_TIMESTAMP(TIMESTAMP) from BLADE_TRANSACTIONS_DATA where payment hit
+// Red Health / Red Health Finance Admin accounts, converted UTC→IST.
 //
 // KEY COLUMNS:
 // - TOTAL_RECEIVED_IN_BANK: All-time amount received in Red Health terminal accounts for these orders
@@ -16,10 +16,7 @@ import { ORG_ID } from './constants';
 
 // HELPER FUNCTIONS
 
-// Order creation date filter — applied on the orders table with proper UTC→IST conversion
-function buildOrderDateFilter(startDate, endDate) {
-  return `AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) BETWEEN '${startDate}' AND '${endDate}'`;
-}
+// No date filter helper needed — date scoping done via terminal account transactions in orders_in_scope CTE
 
 function buildLOBFilter(lob) {
   if (!lob) return '';
@@ -44,7 +41,6 @@ function buildCitiesFilter(cities) {
 // BASE CTE BUILDER
 
 function buildBaseCTE(startDate, endDate, dateType, lob, cities) {
-  const orderDateFilter = buildOrderDateFilter(startDate, endDate);
   const lobFilter = buildLOBFilter(lob);
   const citiesFilter = buildCitiesFilter(cities);
 
@@ -118,11 +114,24 @@ WITH raw_orders AS (
     AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%')
     AND bo.META_ORDER_TYPE = 'BOOKING'
     AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
-    ${orderDateFilter}
+),
+
+-- Orders that received payment at terminal account (bank) within the selected date range
+-- Terminal account = Red Health / Red Health Finance Admin
+-- TIMESTAMP is epoch (UTC) → convert to IST for date filtering
+orders_in_scope AS (
+  SELECT DISTINCT trm.ORDER_ID
+  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
+  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
+  WHERE trm.ORG_ID = '${ORG_ID}'
+    AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
+    AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
+    AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'
 ),
 
 base_orders AS (
   SELECT ro.* FROM raw_orders ro
+  INNER JOIN orders_in_scope ois ON ro.ORDER_ID = ois.ORDER_ID
   WHERE 1=1
     ${lobFilter}
     ${citiesFilter}
@@ -354,13 +363,13 @@ ORDER BY EMPLOYEE_EMAIL, ro.city, ro.lob;
 export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, cities) {
   const lobFilter = buildLOBFilter(lob);
   const citiesFilter = buildCitiesFilter(cities);
-  // Trend by order creation date (IST), with collected amount from terminal account (all-time per order)
-  const orderDateExpr = `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP))`;
+  // Trend by terminal account transaction date (payment received at bank)
+  // Epoch TIMESTAMP in UTC → converted to IST
+  const bankDateExpr = `DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP)))`;
 
   return `
 WITH raw_orders AS (
   SELECT DISTINCT bo.ORDER_ID,
-    ${orderDateExpr} as order_date,
     ROUND(bo.PAYMENTS_TOTAL_ORDER_AMOUNT / 100.0, 0) as total_revenue,
     ROUND(bo.PAYMENTS_MARGIN / 100.0, 0) as red_margin,
     CASE WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'Digital' WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Corporate' WHEN eu.user_type != 'CC_AGENT' THEN 'Hospital' ELSE 'Stan Command' END as lob,
@@ -369,20 +378,23 @@ WITH raw_orders AS (
   LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED n ON bo.META_SITE_ID = n.SITE_ID
   LEFT JOIN (SELECT email, user_type FROM BLADE.CORE.BLADE_USER_ENTITIES_PARSED QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC) = 1) eu ON COALESCE(NULLIF(bo.META_BOOKING_CREATED_BY,''), NULLIF(bo.META_ENQUIRY_CREATED_BY,''), bo.META_CREATED_BY) = eu.EMAIL
   WHERE bo.META_ORG_ID = '${ORG_ID}' AND bo.META_IS_FREE_TRIP = 0 AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%') AND bo.META_ORDER_TYPE = 'BOOKING' AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
-  AND ${orderDateExpr} BETWEEN '${startDate}' AND '${endDate}'
 ),
-bank_alltime AS (
-  SELECT trm.ORDER_ID, ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100.0), 0) as collected
+-- Daily terminal account collections (payment received at bank), grouped by transaction date (IST)
+daily_bank AS (
+  SELECT ${bankDateExpr} as trend_date, trm.ORDER_ID,
+    ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100.0), 0) as collected
   FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
   LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
-  WHERE trm.ORG_ID = '${ORG_ID}' AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
+  WHERE trm.ORG_ID = '${ORG_ID}'
+    AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
     AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
-  GROUP BY trm.ORDER_ID
+    AND ${bankDateExpr} BETWEEN '${startDate}' AND '${endDate}'
+  GROUP BY ${bankDateExpr}, trm.ORDER_ID
 ),
-filtered_orders AS (SELECT ro.*, COALESCE(ba.collected, 0) as collected FROM raw_orders ro LEFT JOIN bank_alltime ba ON ro.ORDER_ID = ba.ORDER_ID WHERE 1=1 ${lobFilter} ${citiesFilter}),
+filtered_orders AS (SELECT * FROM raw_orders WHERE 1=1 ${lobFilter} ${citiesFilter}),
 date_range AS (SELECT DATEADD(day, ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1, '${startDate}'::DATE) as trend_date FROM TABLE(GENERATOR(ROWCOUNT => 366)))
-SELECT dr.trend_date as TREND_DATE, COUNT(DISTINCT fo.ORDER_ID) as ORDERS, ROUND(SUM(COALESCE(fo.total_revenue, 0)), 0) as REVENUE, ROUND(SUM(COALESCE(fo.red_margin, 0)), 0) as MARGIN, ROUND(SUM(COALESCE(fo.collected, 0)), 0) as COLLECTED
-FROM date_range dr LEFT JOIN filtered_orders fo ON fo.order_date = dr.trend_date
+SELECT dr.trend_date as TREND_DATE, COUNT(DISTINCT db.ORDER_ID) as ORDERS, ROUND(SUM(COALESCE(fo.total_revenue, 0)), 0) as REVENUE, ROUND(SUM(COALESCE(fo.red_margin, 0)), 0) as MARGIN, ROUND(SUM(COALESCE(db.collected, 0)), 0) as COLLECTED
+FROM date_range dr LEFT JOIN daily_bank db ON db.trend_date = dr.trend_date LEFT JOIN filtered_orders fo ON db.ORDER_ID = fo.ORDER_ID
 WHERE dr.trend_date BETWEEN '${startDate}'::DATE AND '${endDate}'::DATE GROUP BY dr.trend_date ORDER BY dr.trend_date;
   `;
 }
