@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function CollectionsPage() {
@@ -17,28 +17,22 @@ export default function CollectionsPage() {
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
-  // Multi-select LOB: empty array = All
-  const [selectedLobs, setSelectedLobs] = useState([]);
-  const [lobDropdownOpen, setLobDropdownOpen] = useState(false);
-  const lobDropdownRef = useRef(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [empStatus, setEmpStatus] = useState('All');
   const [ageingFilter, setAgeingFilter] = useState(null);
   const [data, setData] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
 
-  const LOB_OPTIONS = ['Digital', 'Hospital', 'Stan Command', 'Corporate', 'Ground'];
+  // Client-side filters (applied on fetched data)
+  const [filterCity, setFilterCity] = useState('');
+  const [filterHospital, setFilterHospital] = useState('');
+  const [filterB2H, setFilterB2H] = useState(''); // 'B2H' or 'B2P' or ''
+  const [filterProviderType, setFilterProviderType] = useState('');
+  const [filterOrderStatus, setFilterOrderStatus] = useState('');
+  const [filterPartnerName, setFilterPartnerName] = useState('');
+  const [filterAgentEmail, setFilterAgentEmail] = useState('');
+  const [filterLob, setFilterLob] = useState('');
 
-  // Close LOB dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (lobDropdownRef.current && !lobDropdownRef.current.contains(event.target)) {
-        setLobDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // Auth check on mount
   useEffect(() => {
@@ -83,14 +77,12 @@ export default function CollectionsPage() {
     if (!user) return;
     setDataLoading(true);
     const apiType = tabToApiType[activeTab];
-    const lobParam = selectedLobs.length === 0 ? '' : selectedLobs.join(',');
     const params = new URLSearchParams({
       type: apiType,
       token: localStorage.getItem('dash_token'),
       startDate,
       endDate,
       dateType,
-      lob: lobParam,
     });
     if (activeTab === 'employee') params.append('empStatus', empStatus === 'All' ? '' : empStatus);
 
@@ -105,7 +97,7 @@ export default function CollectionsPage() {
     } finally {
       setDataLoading(false);
     }
-  }, [user, activeTab, startDate, endDate, selectedLobs, empStatus]);
+  }, [user, activeTab, startDate, endDate, empStatus]);
 
   useEffect(() => {
     fetchData();
@@ -121,16 +113,6 @@ export default function CollectionsPage() {
 
   if (!user) return null;
 
-  // Toggle LOB selection
-  const toggleLob = (lobValue) => {
-    setSelectedLobs(prev => {
-      if (prev.includes(lobValue)) {
-        return prev.filter(l => l !== lobValue);
-      } else {
-        return [...prev, lobValue];
-      }
-    });
-  };
 
   // Indian number format with commas (12,34,567)
   const fmtIndian = (n) => {
@@ -232,7 +214,7 @@ export default function CollectionsPage() {
   };
 
   const getKpiCards = () => {
-    if (!['summary', 'city'].includes(activeTab) || data.length === 0) return [];
+    if (!['summary', 'city'].includes(activeTab) || filteredData.length === 0) return [];
     const kpis = [
       { label: 'Total Orders', key: 'TOTAL_ORDERS', color: '#3b82f6' },
       { label: 'Total Revenue', key: 'TOTAL_REVENUE', color: '#3b82f6' },
@@ -252,18 +234,18 @@ export default function CollectionsPage() {
         if (kpi.key === 'COLLECTION_EFFICIENCY_PCT') {
           const bankCol = getCols().find(c => c.toUpperCase() === 'TOTAL_RECEIVED_IN_BANK');
           const marginCol = getCols().find(c => c.toUpperCase() === 'TOTAL_RED_MARGIN');
-          const totalBank = data.reduce((acc, row) => acc + (Number(row[bankCol]) || 0), 0);
-          const totalMargin = data.reduce((acc, row) => acc + (Number(row[marginCol]) || 0), 0);
+          const totalBank = filteredData.reduce((acc, row) => acc + (Number(row[bankCol]) || 0), 0);
+          const totalMargin = filteredData.reduce((acc, row) => acc + (Number(row[marginCol]) || 0), 0);
           const eff = totalMargin > 0 ? (100 * totalBank / totalMargin) : 0;
           const color = eff >= 80 ? '#16a34a' : eff >= 50 ? '#ea8c00' : '#dc2626';
           return { label: kpi.label, value: eff.toFixed(1) + '%', color };
         }
         if (kpi.key === 'PENDING_COLLECTION') {
-          const sum = data.reduce((acc, row) => acc + (Number(row[col]) || 0), 0);
+          const sum = filteredData.reduce((acc, row) => acc + (Number(row[col]) || 0), 0);
           const color = sum <= 0 ? '#16a34a' : '#dc2626';
           return { label: kpi.label, value: fmtAmt(sum), color };
         }
-        const sum = data.reduce((acc, row) => acc + (Number(row[col]) || 0), 0);
+        const sum = filteredData.reduce((acc, row) => acc + (Number(row[col]) || 0), 0);
         return { label: kpi.label, value: fmtAmt(sum), color: kpi.color };
       })
       .filter(Boolean);
@@ -279,10 +261,57 @@ export default function CollectionsPage() {
     return Object.entries(riskCounts).map(([tag, count]) => ({ tag, count }));
   };
 
-  const filteredData = activeTab === 'ageing' && ageingFilter ? data.filter(row => row.RISK_TAG === ageingFilter) : data;
+  // Helper: extract unique non-empty values for a column from data
+  const getUniqueValues = (colKey) => {
+    const vals = new Set();
+    data.forEach(row => {
+      // Check multiple possible column name casings
+      const key = Object.keys(row).find(k => k.toUpperCase() === colKey);
+      if (key && row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== '') {
+        vals.add(String(row[key]).trim());
+      }
+    });
+    return [...vals].sort();
+  };
+
+  // Client-side filtered data
+  const filteredData = data.filter(row => {
+    const matchCol = (filterVal, colKey) => {
+      if (!filterVal) return true;
+      const key = Object.keys(row).find(k => k.toUpperCase() === colKey);
+      if (!key) return true; // column not present in this tab, skip filter
+      return String(row[key]).trim() === filterVal;
+    };
+    if (!matchCol(filterCity, 'CITY')) return false;
+    if (!matchCol(filterHospital, 'HOSPITAL_NAME')) return false;
+    if (!matchCol(filterProviderType, 'PROVIDER_TYPE')) return false;
+    if (!matchCol(filterOrderStatus, 'ORDER_STATUS')) return false;
+    if (!matchCol(filterPartnerName, 'PARTNER_NAME')) return false;
+    if (!matchCol(filterAgentEmail, 'AGENT_EMAIL') && !matchCol(filterAgentEmail, 'EMPLOYEE_EMAIL')) return false;
+    if (!matchCol(filterLob, 'LOB')) return false;
+    // B2H / B2P filter
+    if (filterB2H) {
+      const b2pKey = Object.keys(row).find(k => k.toUpperCase() === 'META_IS_BILL_TO_PATIENT');
+      if (b2pKey) {
+        const isB2P = row[b2pKey] === true || row[b2pKey] === 'true' || row[b2pKey] === 1;
+        if (filterB2H === 'B2P' && !isB2P) return false;
+        if (filterB2H === 'B2H' && isB2P) return false;
+      }
+    }
+    // Ageing filter
+    if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
+    return true;
+  });
   const cols = getCols();
 
-  const lobDisplayText = selectedLobs.length === 0 ? 'All LOBs' : selectedLobs.join(', ');
+  // Reset client-side filters when data changes (new tab/fetch)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const resetFilters = () => {
+    setFilterCity(''); setFilterHospital(''); setFilterB2H('');
+    setFilterProviderType(''); setFilterOrderStatus('');
+    setFilterPartnerName(''); setFilterAgentEmail(''); setFilterLob('');
+  };
+
 
   return (
     <div style={{ background: '#f8fafc', minHeight: '100vh' }}>
@@ -335,80 +364,6 @@ export default function CollectionsPage() {
               />
             </div>
 
-            {/* Multi-select LOB Filter */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, position: 'relative' }} ref={lobDropdownRef}>
-              <label style={{ fontSize: 12, color: '#666', fontWeight: 600 }}>LOB Filter</label>
-              <button
-                onClick={() => setLobDropdownOpen(!lobDropdownOpen)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 4,
-                  border: '1px solid #ddd',
-                  fontSize: 13,
-                  background: '#fff',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  minWidth: 180,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
-                  {lobDisplayText}
-                </span>
-                <span style={{ fontSize: 10 }}>{lobDropdownOpen ? '\u25B2' : '\u25BC'}</span>
-              </button>
-              {lobDropdownOpen && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  background: '#fff',
-                  border: '1px solid #ddd',
-                  borderRadius: 6,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  zIndex: 200,
-                  minWidth: 200,
-                  marginTop: 4,
-                  padding: '8px 0',
-                }}>
-                  {/* Clear All / Select All */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 12px 8px', borderBottom: '1px solid #eee' }}>
-                    <button
-                      onClick={() => setSelectedLobs([])}
-                      style={{ fontSize: 12, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                    >
-                      All (Clear)
-                    </button>
-                  </div>
-                  {LOB_OPTIONS.map(lobOption => (
-                    <label
-                      key={lobOption}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 12px',
-                        cursor: 'pointer',
-                        fontSize: 13,
-                        background: selectedLobs.includes(lobOption) ? '#eff6ff' : 'transparent',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedLobs.includes(lobOption)}
-                        onChange={() => toggleLob(lobOption)}
-                        style={{ cursor: 'pointer' }}
-                      />
-                      {lobOption}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
             <button
               onClick={fetchData}
               style={{
@@ -426,6 +381,106 @@ export default function CollectionsPage() {
               Refresh
             </button>
           </div>
+
+          {/* Row 2: Client-side filters */}
+          {data.length > 0 && (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid #eee' }}>
+              {/* City */}
+              {getUniqueValues('CITY').length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>City</label>
+                  <select value={filterCity} onChange={e => setFilterCity(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 100 }}>
+                    <option value="">All</option>
+                    {getUniqueValues('CITY').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Hospital */}
+              {getUniqueValues('HOSPITAL_NAME').length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Hospital</label>
+                  <select value={filterHospital} onChange={e => setFilterHospital(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 120 }}>
+                    <option value="">All</option>
+                    {getUniqueValues('HOSPITAL_NAME').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* LOB (client-side) */}
+              {getUniqueValues('LOB').length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>LOB</label>
+                  <select value={filterLob} onChange={e => setFilterLob(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 100 }}>
+                    <option value="">All</option>
+                    {getUniqueValues('LOB').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* B2H / B2P */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>B2H / B2P</label>
+                <select value={filterB2H} onChange={e => setFilterB2H(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 80 }}>
+                  <option value="">All</option>
+                  <option value="B2H">B2H</option>
+                  <option value="B2P">B2P</option>
+                </select>
+              </div>
+
+              {/* Provider Type */}
+              {getUniqueValues('PROVIDER_TYPE').length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Provider Type</label>
+                  <select value={filterProviderType} onChange={e => setFilterProviderType(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 100 }}>
+                    <option value="">All</option>
+                    {getUniqueValues('PROVIDER_TYPE').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Order Status */}
+              {getUniqueValues('ORDER_STATUS').length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Order Status</label>
+                  <select value={filterOrderStatus} onChange={e => setFilterOrderStatus(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 110 }}>
+                    <option value="">All</option>
+                    {getUniqueValues('ORDER_STATUS').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Partner Name */}
+              {getUniqueValues('PARTNER_NAME').length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Partner</label>
+                  <select value={filterPartnerName} onChange={e => setFilterPartnerName(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 120 }}>
+                    <option value="">All</option>
+                    {getUniqueValues('PARTNER_NAME').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Agent Email */}
+              {(getUniqueValues('AGENT_EMAIL').length > 0 || getUniqueValues('EMPLOYEE_EMAIL').length > 0) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Agent Email</label>
+                  <select value={filterAgentEmail} onChange={e => setFilterAgentEmail(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 150 }}>
+                    <option value="">All</option>
+                    {(getUniqueValues('AGENT_EMAIL').length > 0 ? getUniqueValues('AGENT_EMAIL') : getUniqueValues('EMPLOYEE_EMAIL')).map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Clear All Filters */}
+              <button
+                onClick={resetFilters}
+                style={{ marginTop: 14, background: 'none', border: '1px solid #ddd', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11, color: '#666', fontWeight: 600 }}
+              >
+                Clear Filters
+              </button>
+            </div>
+          )}
         </div>
 
         {/* KPI Cards */}
