@@ -1,18 +1,23 @@
 // Red Health Collections & Payments Dashboard Query Builder
-// Snowflake SQL query builder with new parameter structure:
+// Snowflake SQL query builder with parameter structure:
 // (startDate, endDate, dateType, lob, cities)
 // dateType: 'wallet' or 'payment'
+//
+// FIXES APPLIED:
+// 1. COUNTIF → COUNT_IF (Snowflake syntax)
+// 2. BLADE_USER_ENTITIES (RAW) → BLADE_USER_ENTITIES_PARSED (CORE), join by EMAIL not USER_ID
+// 3. LOB logic matches funnel query pattern (SITE_TYPE_DESC + user_type check)
+// 4. GENERATOR ROWCOUNT uses fixed 366 instead of dynamic DATEDIFF
+// 5. City normalization matches funnel query (GHT/NGP aliases)
+// 6. Hospital name from organization entities NAME field
+// 7. Employee name/email from BLADE_USER_ENTITIES_PARSED joined by EMAIL
 
-const ORG_ID = '14927ff8-a1f6-49ba-abcb-7bb1cf842d52';
+import { ORG_ID } from './constants';
 
 // HELPER FUNCTIONS
 
 /**
  * Build date filter for wallet or payment dates
- * @param {string} dateType - 'wallet' or 'payment'
- * @param {string} startDate - YYYY-MM-DD format
- * @param {string} endDate - YYYY-MM-DD format
- * @returns {string} WHERE clause fragment
  */
 function buildDateFilter(dateType, startDate, endDate) {
   if (dateType === 'wallet') {
@@ -25,12 +30,9 @@ function buildDateFilter(dateType, startDate, endDate) {
 
 /**
  * Build LOB filter clause
- * @param {string} lob - LOB name or 'Ground' (means NOT IN Digital/Corporate)
- * @returns {string} AND clause fragment (empty string if lob is null/falsy)
  */
 function buildLOBFilter(lob) {
   if (!lob) return '';
-
   if (lob === 'Ground') {
     return `AND lob NOT IN ('Digital', 'Corporate')`;
   }
@@ -39,12 +41,9 @@ function buildLOBFilter(lob) {
 
 /**
  * Build cities filter clause
- * @param {string} cities - Comma-separated city codes
- * @returns {string} AND clause fragment (empty string if cities is null/empty)
  */
 function buildCitiesFilter(cities) {
   if (!cities || cities.trim() === '') return '';
-
   const cityList = cities.split(',').map(c => `'${c.trim()}'`).join(', ');
   return `AND city IN (${cityList})`;
 }
@@ -53,12 +52,8 @@ function buildCitiesFilter(cities) {
 
 /**
  * Build the base CTE with all calculations
- * @param {string} startDate - YYYY-MM-DD
- * @param {string} endDate - YYYY-MM-DD
- * @param {string} dateType - 'wallet' or 'payment'
- * @param {string} lob - LOB filter (or null)
- * @param {array|string} cities - Cities filter (or null)
- * @returns {string} WITH clause containing base_orders and payment details
+ * Uses BLADE_USER_ENTITIES_PARSED (CORE) joined by EMAIL for LOB determination
+ * Uses BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED for city/hospital
  */
 function buildBaseCTE(startDate, endDate, dateType, lob, cities) {
   const dateFilter = buildDateFilter(dateType, startDate, endDate);
@@ -69,7 +64,6 @@ function buildBaseCTE(startDate, endDate, dateType, lob, cities) {
 WITH raw_orders AS (
   SELECT DISTINCT
     bo.ORDER_ID,
-    bo.META_CITY as meta_city,
     bo.META_ORDER_STATUS as order_status,
     bo.PAYMENTS_TOTAL_ORDER_AMOUNT as total_revenue_paisa,
     bo.PAYMENTS_MARGIN as margin_paisa,
@@ -88,42 +82,62 @@ WITH raw_orders AS (
     bo.META_CREATED_BY,
     bo.META_ORDER_TYPE,
     bo.META_SERVICEDETAILS_SERVICETYPE,
-    IFNULL(oe.NAME, 'Unknown Hospital') as hospital_name,
-    -- Computed fields
-    CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)::DATE as created_date,
+
+    -- Hospital name from organization entities
+    COALESCE(NULLIF(TRIM(n.NAME), ''), 'Unknown Hospital') as hospital_name,
+
+    -- Computed date fields
+    DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) as created_date,
     COALESCE(
-      CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.ASSIGNMENT_REACHEDDROPOFFAT_TIMESTAMP),
-      bo.FULFILLMENT_FULFILLED_AT_IST
-    )::DATE as fulfilled_date,
+      TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.ASSIGNMENT_REACHEDDROPOFFAT_TIMESTAMP)),
+      TO_DATE(bo.FULFILLMENT_FULFILLED_AT_IST)
+    ) as fulfilled_date,
+
+    -- Revenue in rupees (paisa / 100)
     ROUND(bo.PAYMENTS_TOTAL_ORDER_AMOUNT / 100.0, 0) as total_revenue,
     ROUND(bo.PAYMENTS_MARGIN / 100.0, 0) as red_margin,
-    -- LOB determination
+
+    -- LOB determination (matches funnel query logic)
     CASE
-      WHEN oe.SITE_TYPE_DESC = 'DIGITAL' THEN 'Digital'
-      WHEN oe.SITE_TYPE_DESC = 'CORPORATE' THEN 'Corporate'
-      WHEN eu.USER_TYPE != 'CC_AGENT' THEN 'Hospital'
+      WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'Digital'
+      WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'Stan Command'
+      WHEN eu.user_type != 'CC_AGENT' THEN 'Hospital'
       ELSE 'Stan Command'
     END as lob,
-    -- City determination with normalization
+
+    -- City determination with normalization (matches funnel query)
     CASE
-      WHEN oe.SITE_TYPE_DESC = 'DIGITAL' THEN 'DIGITAL'
-      WHEN oe.SITE_TYPE_DESC = 'CORPORATE' THEN 'CORPORATE'
+      WHEN n.SITE_TYPE_DESC = 'DIGITAL' THEN 'DIGITAL'
+      WHEN n.SITE_TYPE_DESC = 'CORPORATE' THEN 'CORPORATE'
       ELSE CASE
-        WHEN UPPER(TRIM(IFNULL(oe.CITY, 'UNKNOWN'))) IN ('GUWAHATI', 'GHT') THEN 'GHT'
-        WHEN UPPER(TRIM(IFNULL(oe.CITY, 'UNKNOWN'))) IN ('NAGPUR', 'NGP') THEN 'NGP'
-        ELSE UPPER(TRIM(IFNULL(oe.CITY, 'UNKNOWN')))
+        WHEN UPPER(TRIM(IFNULL(n.CITY, 'UNKNOWN'))) IN ('GUWAHATI', 'GHT') THEN 'GHT'
+        WHEN UPPER(TRIM(IFNULL(n.CITY, 'UNKNOWN'))) IN ('NAGPUR', 'NGP') THEN 'NGP'
+        ELSE UPPER(TRIM(IFNULL(n.CITY, 'UNKNOWN')))
       END
     END as city,
+
     -- Own vs Partner
     CASE WHEN bo.ASSIGNMENT_PROVIDER_TYPE = 'OWNED' THEN 'Own' ELSE 'Partner' END as provider_type,
-    -- Created by user reference
-    COALESCE(bo.META_BOOKING_CREATED_BY, bo.META_ENQUIRY_CREATED_BY, bo.META_CREATED_BY) as created_by_id
+
+    -- Created by email reference
+    COALESCE(
+      NULLIF(bo.META_BOOKING_CREATED_BY, ''),
+      NULLIF(bo.META_ENQUIRY_CREATED_BY, ''),
+      bo.META_CREATED_BY
+    ) as created_by_email
+
   FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
-  LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED oe
-    ON bo.META_SITE_ID = oe.SITE_ID AND bo.META_ORG_ID = oe.ORGANIZATION_ID
-  LEFT JOIN BLADE.RAW.BLADE_USER_ENTITIES eu
-    ON COALESCE(bo.META_BOOKING_CREATED_BY, bo.META_ENQUIRY_CREATED_BY, bo.META_CREATED_BY) = eu.USER_ID
-      AND bo.META_ORG_ID = eu.ORGANIZATION_ID
+  LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED n
+    ON bo.META_SITE_ID = n.SITE_ID
+  LEFT JOIN (
+    SELECT email, user_type
+    FROM BLADE.CORE.BLADE_USER_ENTITIES_PARSED
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC) = 1
+  ) eu ON COALESCE(
+    NULLIF(bo.META_BOOKING_CREATED_BY, ''),
+    NULLIF(bo.META_ENQUIRY_CREATED_BY, ''),
+    bo.META_CREATED_BY
+  ) = eu.EMAIL
   WHERE bo.META_ORG_ID = '${ORG_ID}'
     AND bo.META_IS_FREE_TRIP = 0
     AND (bo.META_SPECIAL_CATEGORY IS NULL OR UPPER(bo.META_SPECIAL_CATEGORY) NOT LIKE '%TEST%')
@@ -184,7 +198,7 @@ external_wallet AS (
 // EXPORTED QUERY BUILDERS
 
 /**
- * Build Collections Summary Query - GROUP BY CITY, LOB
+ * Collections Summary Query - GROUP BY CITY, LOB
  */
 export function buildCollectionsSummaryQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -233,7 +247,7 @@ ORDER BY ro.city, ro.lob;
 }
 
 /**
- * Build Collections by Hospital Query - GROUP BY CITY, HOSPITAL_NAME, LOB
+ * Collections by Hospital Query - GROUP BY CITY, HOSPITAL_NAME, LOB
  */
 export function buildCollectionsHospitalQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -283,7 +297,7 @@ ORDER BY ro.city, ro.hospital_name, ro.lob;
 }
 
 /**
- * Build Collections by Partner Query - GROUP BY CITY, HOSPITAL_NAME, provider_type, LOB
+ * Collections by Partner Query - GROUP BY CITY, HOSPITAL_NAME, PROVIDER_TYPE, LOB
  */
 export function buildCollectionsPartnerQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -334,18 +348,25 @@ ORDER BY ro.city, ro.hospital_name, ro.provider_type, ro.lob;
 }
 
 /**
- * Build Collections by Employee Query
- * Joins to employee data and groups by employee, city, LOB
+ * Collections by Employee Query
+ * Uses BLADE_USER_ENTITIES_PARSED (CORE) joined by EMAIL for employee details
  */
 export function buildCollectionsEmployeeQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
 
-  return `${baseCTE}
+  return `${baseCTE},
+
+employee_details AS (
+  SELECT email, user_type, name, status
+  FROM BLADE.CORE.BLADE_USER_ENTITIES_PARSED
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC) = 1
+)
+
 SELECT
-  eu.EMAIL as EMPLOYEE_EMAIL,
-  eu.NAME as EMPLOYEE_NAME,
-  eu.USER_TYPE as EMPLOYEE_ROLE,
-  eu.STATUS as EMPLOYEE_STATUS,
+  COALESCE(ed.email, ro.created_by_email, 'Unknown') as EMPLOYEE_EMAIL,
+  COALESCE(ed.name, 'Unknown') as EMPLOYEE_NAME,
+  COALESCE(ed.user_type, 'Unknown') as EMPLOYEE_ROLE,
+  COALESCE(ed.status, 'Unknown') as EMPLOYEE_STATUS,
   ro.city as CITY,
   ro.lob as LOB,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
@@ -379,18 +400,18 @@ SELECT
     0
   ) as AVG_COLLECTION_TAT_DAYS
 FROM base_orders ro
-LEFT JOIN BLADE.RAW.BLADE_USER_ENTITIES eu
-  ON ro.created_by_id = eu.USER_ID AND eu.ORGANIZATION_ID = '${ORG_ID}'
+LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
 LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY eu.EMAIL, eu.NAME, eu.USER_TYPE, eu.STATUS, ro.city, ro.lob
-ORDER BY eu.EMAIL, ro.city, ro.lob;
+GROUP BY ed.email, ed.name, ed.user_type, ed.status, ro.created_by_email, ro.city, ro.lob
+ORDER BY EMPLOYEE_EMAIL, ro.city, ro.lob;
   `;
 }
 
 /**
- * Build Collections Trend Query - Daily breakdown
+ * Collections Trend Query - Daily breakdown
+ * Uses fixed GENERATOR(ROWCOUNT => 366) to avoid Snowflake constant requirement error
  */
 export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -399,25 +420,26 @@ export function buildCollectionsTrendQuery(startDate, endDate, dateType, lob, ci
 
 date_range AS (
   SELECT DATEADD(day, ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1, '${startDate}'::DATE) as trend_date
-  FROM TABLE(GENERATOR(ROWCOUNT => DATEDIFF(day, '${startDate}'::DATE, '${endDate}'::DATE) + 1))
+  FROM TABLE(GENERATOR(ROWCOUNT => 366))
 )
 
 SELECT
-  dr.trend_date,
+  dr.trend_date as TREND_DATE,
   COUNT(DISTINCT ro.ORDER_ID) as ORDERS,
-  ROUND(SUM(ro.total_revenue), 0) as REVENUE,
-  ROUND(SUM(ro.red_margin), 0) as MARGIN,
+  ROUND(SUM(COALESCE(ro.total_revenue, 0)), 0) as REVENUE,
+  ROUND(SUM(COALESCE(ro.red_margin, 0)), 0) as MARGIN,
   ROUND(SUM(COALESCE(cr.bank_amount, 0)), 0) as COLLECTED
 FROM date_range dr
 LEFT JOIN base_orders ro ON ro.created_date = dr.trend_date
 LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
+WHERE dr.trend_date BETWEEN '${startDate}'::DATE AND '${endDate}'::DATE
 GROUP BY dr.trend_date
 ORDER BY dr.trend_date;
   `;
 }
 
 /**
- * Build Collections Ageing Detail Query - Per-order detail with risk tags
+ * Collections Ageing Detail Query - Per-order detail with risk tags
  */
 export function buildCollectionsAgeingDetailQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -453,7 +475,7 @@ ORDER BY ro.city, ro.hospital_name, ro.created_date DESC;
 }
 
 /**
- * Build Collections B2H Summary Query - With KIND transaction costs
+ * Collections B2H Summary Query - With KIND transaction costs
  */
 export function buildCollectionsB2HSummaryQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -472,7 +494,9 @@ b2h_costs AS (
 
 SELECT
   ro.city as CITY,
+  ro.hospital_name as HOSPITAL_NAME,
   ro.lob as LOB,
+  ro.provider_type as PROVIDER_TYPE,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
@@ -490,13 +514,13 @@ LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 LEFT JOIN b2h_costs bc ON ro.ORDER_ID = bc.ORDER_ID
-GROUP BY ro.city, ro.lob
-ORDER BY ro.city, ro.lob;
+GROUP BY ro.city, ro.hospital_name, ro.lob, ro.provider_type
+ORDER BY ro.city, ro.hospital_name, ro.lob, ro.provider_type;
   `;
 }
 
 /**
- * Build Collections LOB Summary Query - GROUP BY LOB only
+ * Collections LOB Summary Query - GROUP BY LOB only
  */
 export function buildCollectionsLOBSummaryQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
@@ -544,14 +568,22 @@ ORDER BY ro.lob;
 }
 
 /**
- * Build Collections Raw Report Query - Per-order details
+ * Collections Raw Report Query - Per-order details with employee, city, hospital
  */
 export function buildCollectionsRawReportQuery(startDate, endDate, dateType, lob, cities) {
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
 
-  return `${baseCTE}
+  return `${baseCTE},
+
+employee_details AS (
+  SELECT email, user_type, name
+  FROM BLADE.CORE.BLADE_USER_ENTITIES_PARSED
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at DESC) = 1
+)
+
 SELECT
-  IFNULL(eu.EMAIL, 'Unknown') as EMPLOYEE_EMAIL,
+  COALESCE(ed.name, ro.created_by_email, 'Unknown') as AGENT_NAME,
+  COALESCE(ed.email, ro.created_by_email, 'Unknown') as AGENT_EMAIL,
   ro.city as CITY,
   ro.hospital_name as HOSPITAL_NAME,
   ro.ORDER_ID,
@@ -582,12 +614,10 @@ SELECT
     - CASE WHEN ro.provider_type = 'Own' THEN ROUND(COALESCE(ro.TOTAL_ADDONS_PRICE, 0) / 100.0, 0) ELSE 0 END
     as NET_CASH_TO_COMPANY
 FROM base_orders ro
-LEFT JOIN BLADE.RAW.BLADE_USER_ENTITIES eu
-  ON ro.created_by_id = eu.USER_ID AND eu.ORGANIZATION_ID = '${ORG_ID}'
+LEFT JOIN employee_details ed ON ro.created_by_email = ed.email
 LEFT JOIN company_receipts cr ON ro.ORDER_ID = cr.ORDER_ID
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
 ORDER BY ro.city, ro.created_date DESC, ro.ORDER_ID;
   `;
 }
-
