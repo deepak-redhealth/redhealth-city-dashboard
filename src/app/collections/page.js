@@ -238,6 +238,7 @@ export default function CollectionsPage() {
       { label: 'Total Revenue', key: 'TOTAL_REVENUE', color: '#3b82f6' },
       { label: 'Total RED Margin', key: 'TOTAL_RED_MARGIN', color: '#16a34a' },
       { label: 'Received in Bank (All-Time)', key: 'TOTAL_RECEIVED_IN_BANK', color: '#16a34a' },
+      { label: 'At Bank (This Period)', key: 'TOTAL_AT_BANK_IN_PERIOD', color: '#059669' },
       { label: 'Pending Employee', key: 'TOTAL_PENDING_EMPLOYEE', color: '#ea8c00' },
       { label: 'Pending Partner', key: 'TOTAL_PENDING_PARTNER', color: '#ea8c00' },
       { label: 'Pending Collection', key: 'PENDING_COLLECTION', color: '#dc2626' },
