@@ -8,7 +8,7 @@ export default function CollectionsPage() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [dateType, setDateType] = useState('txn_created');
+  const dateType = 'order_date'; // order creation date (UTC→IST)
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
@@ -105,7 +105,7 @@ export default function CollectionsPage() {
     } finally {
       setDataLoading(false);
     }
-  }, [user, activeTab, startDate, endDate, dateType, selectedLobs, empStatus]);
+  }, [user, activeTab, startDate, endDate, selectedLobs, empStatus]);
 
   useEffect(() => {
     fetchData();
@@ -238,7 +238,6 @@ export default function CollectionsPage() {
       { label: 'Total Revenue', key: 'TOTAL_REVENUE', color: '#3b82f6' },
       { label: 'Total RED Margin', key: 'TOTAL_RED_MARGIN', color: '#16a34a' },
       { label: 'Received in Bank (All-Time)', key: 'TOTAL_RECEIVED_IN_BANK', color: '#16a34a' },
-      { label: 'At Bank (This Period)', key: 'TOTAL_AT_BANK_IN_PERIOD', color: '#059669' },
       { label: 'Pending Employee', key: 'TOTAL_PENDING_EMPLOYEE', color: '#ea8c00' },
       { label: 'Pending Partner', key: 'TOTAL_PENDING_PARTNER', color: '#ea8c00' },
       { label: 'Pending Collection', key: 'PENDING_COLLECTION', color: '#dc2626' },
@@ -316,17 +315,6 @@ export default function CollectionsPage() {
         {/* Filter Bar */}
         <div style={{ background: '#fff', borderRadius: 10, padding: '16px', marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 12, color: '#666', fontWeight: 600 }}>Date Type</label>
-              <select
-                value={dateType}
-                onChange={(e) => setDateType(e.target.value)}
-                style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ddd', fontSize: 13 }}
-              >
-                <option value="txn_created">Transaction Created Date</option>
-                <option value="payment_received">Payment Received Date</option>
-              </select>
-            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 600 }}>Start Date</label>
               <input
