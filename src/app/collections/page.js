@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function CollectionsPage() {
@@ -17,12 +17,28 @@ export default function CollectionsPage() {
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
-  const [lob, setLob] = useState('All');
+  // Multi-select LOB: empty array = All
+  const [selectedLobs, setSelectedLobs] = useState([]);
+  const [lobDropdownOpen, setLobDropdownOpen] = useState(false);
+  const lobDropdownRef = useRef(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [empStatus, setEmpStatus] = useState('All');
   const [ageingFilter, setAgeingFilter] = useState(null);
   const [data, setData] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
+
+  const LOB_OPTIONS = ['Digital', 'Hospital', 'Stan Command', 'Corporate', 'Ground'];
+
+  // Close LOB dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (lobDropdownRef.current && !lobDropdownRef.current.contains(event.target)) {
+        setLobDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Auth check on mount
   useEffect(() => {
@@ -67,13 +83,14 @@ export default function CollectionsPage() {
     if (!user) return;
     setDataLoading(true);
     const apiType = tabToApiType[activeTab];
+    const lobParam = selectedLobs.length === 0 ? '' : selectedLobs.join(',');
     const params = new URLSearchParams({
       type: apiType,
       token: localStorage.getItem('dash_token'),
       startDate,
       endDate,
       dateType,
-      lob: lob === 'All' ? '' : lob,
+      lob: lobParam,
     });
     if (activeTab === 'employee') params.append('empStatus', empStatus === 'All' ? '' : empStatus);
 
@@ -88,7 +105,7 @@ export default function CollectionsPage() {
     } finally {
       setDataLoading(false);
     }
-  }, [user, activeTab, startDate, endDate, dateType, lob, empStatus]);
+  }, [user, activeTab, startDate, endDate, dateType, selectedLobs, empStatus]);
 
   useEffect(() => {
     fetchData();
@@ -104,13 +121,32 @@ export default function CollectionsPage() {
 
   if (!user) return null;
 
+  // Toggle LOB selection
+  const toggleLob = (lobValue) => {
+    setSelectedLobs(prev => {
+      if (prev.includes(lobValue)) {
+        return prev.filter(l => l !== lobValue);
+      } else {
+        return [...prev, lobValue];
+      }
+    });
+  };
+
+  // Indian number format with commas (12,34,567)
+  const fmtIndian = (n) => {
+    const num = Math.round(Math.abs(n));
+    const s = num.toString();
+    if (s.length <= 3) return (n < 0 ? '-' : '') + s;
+    const last3 = s.slice(-3);
+    const rest = s.slice(0, -3);
+    const formatted = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + last3;
+    return (n < 0 ? '-' : '') + formatted;
+  };
+
   const fmtAmt = (v) => {
     const n = Number(v);
     if (isNaN(n)) return v;
-    const abs = Math.abs(n);
-    if (abs >= 100000) return (n / 100000).toFixed(2) + ' L';
-    if (abs >= 1000) return (n / 1000).toFixed(3) + ' K';
-    return Math.round(n).toString();
+    return fmtIndian(n);
   };
 
   const formatCell = (colName, value) => {
@@ -122,6 +158,16 @@ export default function CollectionsPage() {
     if (upper.includes('PCT') || upper.includes('EFFICIENCY')) {
       const num = Number(value);
       return isNaN(num) ? value : num.toFixed(1) + '%';
+    }
+    if (upper.includes('DATE') && value) {
+      // Format dates as DD-MMM-YYYY
+      try {
+        const d = new Date(value);
+        if (!isNaN(d.getTime())) {
+          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+        }
+      } catch(e) {}
     }
     return value.toString();
   };
@@ -186,8 +232,8 @@ export default function CollectionsPage() {
       { label: 'Total Revenue', key: 'TOTAL_REVENUE', color: '#3b82f6' },
       { label: 'Total RED Margin', key: 'TOTAL_RED_MARGIN', color: '#16a34a' },
       { label: 'Total at Bank', key: 'TOTAL_AT_BANK', color: '#16a34a' },
-      { label: 'Pending Employee', key: 'PENDING_EMPLOYEE', color: '#ea8c00' },
-      { label: 'Pending Partner', key: 'PENDING_PARTNER', color: '#ea8c00' },
+      { label: 'Pending Employee', key: 'TOTAL_PENDING_EMPLOYEE', color: '#ea8c00' },
+      { label: 'Pending Partner', key: 'TOTAL_PENDING_PARTNER', color: '#ea8c00' },
       { label: 'Pending Collection', key: 'PENDING_COLLECTION', color: '#dc2626' },
       { label: 'Collection Efficiency %', key: 'COLLECTION_EFFICIENCY_PCT', color: '#16a34a' },
     ];
@@ -223,6 +269,8 @@ export default function CollectionsPage() {
 
   const filteredData = activeTab === 'ageing' && ageingFilter ? data.filter(row => row.RISK_TAG === ageingFilter) : data;
   const cols = getCols();
+
+  const lobDisplayText = selectedLobs.length === 0 ? 'All LOBs' : selectedLobs.join(', ');
 
   return (
     <div style={{ background: '#f8fafc', minHeight: '100vh' }}>
@@ -263,8 +311,8 @@ export default function CollectionsPage() {
                 onChange={(e) => setDateType(e.target.value)}
                 style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ddd', fontSize: 13 }}
               >
-                <option value="wallet">Wallet Created Date</option>
-                <option value="payment">Payment Received Date</option>
+                <option value="wallet">Order Created Date</option>
+                <option value="payment">Fulfillment Date</option>
               </select>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -285,21 +333,81 @@ export default function CollectionsPage() {
                 style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ddd', fontSize: 13 }}
               />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+
+            {/* Multi-select LOB Filter */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, position: 'relative' }} ref={lobDropdownRef}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 600 }}>LOB Filter</label>
-              <select
-                value={lob}
-                onChange={(e) => setLob(e.target.value)}
-                style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ddd', fontSize: 13 }}
+              <button
+                onClick={() => setLobDropdownOpen(!lobDropdownOpen)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 4,
+                  border: '1px solid #ddd',
+                  fontSize: 13,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  minWidth: 180,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
               >
-                <option>All</option>
-                <option>Digital</option>
-                <option>Stan Command</option>
-                <option>Hospital</option>
-                <option>Corporate</option>
-                <option>Ground</option>
-              </select>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+                  {lobDisplayText}
+                </span>
+                <span style={{ fontSize: 10 }}>{lobDropdownOpen ? '\u25B2' : '\u25BC'}</span>
+              </button>
+              {lobDropdownOpen && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  background: '#fff',
+                  border: '1px solid #ddd',
+                  borderRadius: 6,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  zIndex: 200,
+                  minWidth: 200,
+                  marginTop: 4,
+                  padding: '8px 0',
+                }}>
+                  {/* Clear All / Select All */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 12px 8px', borderBottom: '1px solid #eee' }}>
+                    <button
+                      onClick={() => setSelectedLobs([])}
+                      style={{ fontSize: 12, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      All (Clear)
+                    </button>
+                  </div>
+                  {LOB_OPTIONS.map(lobOption => (
+                    <label
+                      key={lobOption}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        fontSize: 13,
+                        background: selectedLobs.includes(lobOption) ? '#eff6ff' : 'transparent',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedLobs.includes(lobOption)}
+                        onChange={() => toggleLob(lobOption)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      {lobOption}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
+
             <button
               onClick={fetchData}
               style={{
