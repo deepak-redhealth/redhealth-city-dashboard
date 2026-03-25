@@ -1,12 +1,12 @@
 import { ORG_ID } from './constants';
 
 // ============================================================
-// CITYWISE FUNNEL QUERY - Locked Logic v8
-// MTD till today, compare today vs yesterday
+// CITYWISE FUNNEL QUERY - Locked Logic v9
+// MTD till today, compare FTD vs yesterday (same period)
 // Excludes Air Ambulance, Test orders
 // Revenue in Lakhs (paise / 10,000,000)
 // ============================================================
-export function buildFunnelQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildFunnelQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -18,6 +18,7 @@ WITH base AS (
       ELSE 'Stan Command'
     END AS LOB,
     DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata',bo.META_CREATED_AT_TIMESTAMP)) AS created_date,
+    TIME(CONVERT_TIMEZONE('UTC','Asia/Kolkata',bo.META_CREATED_AT_TIMESTAMP)) AS created_time,
     bo.ORDER_ID, bo.META_ORDER_TYPE, bo.META_ORDER_STATUS,
     bo.META_IS_FREE_TRIP, bo.PAYMENTS_TOTAL_ORDER_AMOUNT
   FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
@@ -59,17 +60,17 @@ SELECT
     / NULLIF(SUM(CASE WHEN META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END),0), 1) AS MTD_BKG_CONV_PCT,
   ROUND(SUM(CASE WHEN META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END)*100.0
     / NULLIF(SUM(CASE WHEN META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END),0), 1) AS MTD_TRIP_COMP_PCT,
-  -- Today
+  -- FTD (Today)
   SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS TODAY_ENQUIRY,
   SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS TODAY_BOOKING,
   SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS TODAY_TRIP_COMP,
   ROUND(SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
     THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS TODAY_REV_BKD_L,
-  -- Yesterday
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS YDAY_ENQUIRY,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS YDAY_TRIP_COMP,
-  ROUND(SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
+  -- Yesterday (same period — capped at current IST time)
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS YDAY_ENQUIRY,
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING,
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS YDAY_TRIP_COMP,
+  ROUND(SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
     THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS YDAY_REV_BKD_L
 FROM base
 GROUP BY CITY, LOB
@@ -77,12 +78,12 @@ ORDER BY MTD_REV_BKD_L DESC NULLS LAST`;
 }
 
 // ============================================================
-// CITYWISE FINANCE QUERY - Locked Logic v8
-// MTD till today, compare today vs yesterday
+// CITYWISE FINANCE QUERY - Locked Logic v9
+// MTD till today, compare FTD vs yesterday (same period)
 // Excludes Air Ambulance (DEAD_BODY_AIR_CARGO included)
 // Revenue in Rupees (paise / 100)
 // ============================================================
-export function buildFinanceQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -97,6 +98,10 @@ WITH base AS (
       TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', f.assignment_reacheddropoffat_timestamp)),
       TO_DATE(f.FULFILLMENT_FULFILLED_AT_IST)
     ) AS fin_date,
+    TIME(COALESCE(
+      CONVERT_TIMEZONE('UTC','Asia/Kolkata', f.assignment_reacheddropoffat_timestamp),
+      f.FULFILLMENT_FULFILLED_AT_IST
+    )) AS fin_time,
     DATE_TRUNC('month', COALESCE(
       TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', f.assignment_reacheddropoffat_timestamp)),
       TO_DATE(f.FULFILLMENT_FULFILLED_AT_IST)
@@ -153,8 +158,8 @@ SELECT
   COUNT(CASE WHEN fin_date='${today}' THEN order_id END) AS TODAY_TRIPS,
   ROUND(SUM(CASE WHEN fin_date='${today}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
     ELSE IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0)/100 END ELSE 0 END),0) AS TODAY_REV,
-  COUNT(CASE WHEN fin_date='${yesterday}' THEN order_id END) AS YDAY_TRIPS,
-  ROUND(SUM(CASE WHEN fin_date='${yesterday}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
+  COUNT(CASE WHEN fin_date='${yesterday}' AND fin_time<='${currentISTTime}' THEN order_id END) AS YDAY_TRIPS,
+  ROUND(SUM(CASE WHEN fin_date='${yesterday}' AND fin_time<='${currentISTTime}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
     ELSE IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0)/100 END ELSE 0 END),0) AS YDAY_REV
 FROM base
 GROUP BY CITY, LOB
@@ -162,11 +167,11 @@ ORDER BY MTD_REV DESC NULLS LAST`;
 }
 
 // ============================================================
-// HOSPITAL-WISE FUNNEL QUERY - Locked Logic v8
-// MTD till today, compare today vs yesterday
+// HOSPITAL-WISE FUNNEL QUERY - Locked Logic v9
+// MTD till today, compare FTD vs yesterday (same period)
 // Groups by CITY + HOSPITAL (site name)
 // ============================================================
-export function buildHospitalQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildHospitalQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -178,6 +183,7 @@ WITH base AS (
       ELSE 'Hospital'
     END AS LOB,
     DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata',bo.META_CREATED_AT_TIMESTAMP)) AS created_date,
+    TIME(CONVERT_TIMEZONE('UTC','Asia/Kolkata',bo.META_CREATED_AT_TIMESTAMP)) AS created_time,
     bo.ORDER_ID, bo.META_ORDER_TYPE, bo.META_ORDER_STATUS,
     bo.META_IS_FREE_TRIP, bo.PAYMENTS_TOTAL_ORDER_AMOUNT
   FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
@@ -216,10 +222,10 @@ SELECT
   SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS TODAY_TRIP_COMP,
   ROUND(SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
     THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS TODAY_REV_BKD_L,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS YDAY_ENQUIRY,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS YDAY_TRIP_COMP,
-  ROUND(SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS YDAY_ENQUIRY,
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING,
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS YDAY_TRIP_COMP,
+  ROUND(SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
     THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS YDAY_REV_BKD_L
 FROM base
 GROUP BY CITY, HOSPITAL, LOB
@@ -228,11 +234,11 @@ ORDER BY MTD_REV_BKD_L DESC NULLS LAST`;
 }
 
 // ============================================================
-// AGENT-WISE FUNNEL QUERY - Locked Logic v8
-// MTD till today, compare today vs yesterday
+// AGENT-WISE FUNNEL QUERY - Locked Logic v9
+// MTD till today, compare FTD vs yesterday (same period)
 // Groups by CITY + AGENT (booking creator email)
 // ============================================================
-export function buildAgentQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildAgentQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -249,6 +255,7 @@ WITH base AS (
       ELSE 'Stan Command'
     END AS LOB,
     DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata',bo.META_CREATED_AT_TIMESTAMP)) AS created_date,
+    TIME(CONVERT_TIMEZONE('UTC','Asia/Kolkata',bo.META_CREATED_AT_TIMESTAMP)) AS created_time,
     bo.ORDER_ID, bo.META_ORDER_TYPE, bo.META_ORDER_STATUS,
     bo.META_IS_FREE_TRIP, bo.PAYMENTS_TOTAL_ORDER_AMOUNT
   FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
@@ -296,10 +303,10 @@ SELECT
   SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS TODAY_TRIP_COMP,
   ROUND(SUM(CASE WHEN created_date='${today}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
     THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS TODAY_REV_BKD_L,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS YDAY_ENQUIRY,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING,
-  SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS YDAY_TRIP_COMP,
-  ROUND(SUM(CASE WHEN created_date='${yesterday}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE IN('ENQUIRY','BOOKING') THEN 1 ELSE 0 END) AS YDAY_ENQUIRY,
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' THEN 1 ELSE 0 END) AS YDAY_BOOKING,
+  SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' AND META_ORDER_STATUS='COMPLETED' THEN 1 ELSE 0 END) AS YDAY_TRIP_COMP,
+  ROUND(SUM(CASE WHEN created_date='${yesterday}' AND created_time<='${currentISTTime}' AND META_ORDER_TYPE='BOOKING' AND IFNULL(META_IS_FREE_TRIP,FALSE)<>TRUE
     THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0) ELSE 0 END)/10000000,2) AS YDAY_REV_BKD_L
 FROM base
 GROUP BY CITY, AGENT_EMAIL, LOB
@@ -311,7 +318,7 @@ ORDER BY MTD_REV_BKD_L DESC NULLS LAST`;
 // HOSPITAL-WISE FINANCE QUERY
 // Same KPIs as city-level finance, grouped by CITY + HOSPITAL
 // ============================================================
-export function buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -326,6 +333,10 @@ WITH base AS (
       TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', f.assignment_reacheddropoffat_timestamp)),
       TO_DATE(f.FULFILLMENT_FULFILLED_AT_IST)
     ) AS fin_date,
+    TIME(COALESCE(
+      CONVERT_TIMEZONE('UTC','Asia/Kolkata', f.assignment_reacheddropoffat_timestamp),
+      f.FULFILLMENT_FULFILLED_AT_IST
+    )) AS fin_time,
     f.order_id, f.META_IS_FREE_TRIP, f.META_IS_BILL_TO_PATIENT,
     f.PAYMENTS_TOTAL_ORDER_AMOUNT, f.PAYMENTS_MARGIN, f.PAYMENTS_TOTAL_DISCOUNT,
     f.DIGITAL_CUSTOMER_PAYMENT_AMOUNT, f.ASSIGNMENT_PROVIDER_TYPE,
@@ -375,8 +386,8 @@ SELECT
   COUNT(CASE WHEN fin_date='${today}' THEN order_id END) AS TODAY_TRIPS,
   ROUND(SUM(CASE WHEN fin_date='${today}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
     ELSE IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0)/100 END ELSE 0 END),0) AS TODAY_REV,
-  COUNT(CASE WHEN fin_date='${yesterday}' THEN order_id END) AS YDAY_TRIPS,
-  ROUND(SUM(CASE WHEN fin_date='${yesterday}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
+  COUNT(CASE WHEN fin_date='${yesterday}' AND fin_time<='${currentISTTime}' THEN order_id END) AS YDAY_TRIPS,
+  ROUND(SUM(CASE WHEN fin_date='${yesterday}' AND fin_time<='${currentISTTime}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
     ELSE IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0)/100 END ELSE 0 END),0) AS YDAY_REV
 FROM base
 GROUP BY CITY, HOSPITAL, LOB
@@ -388,7 +399,7 @@ ORDER BY MTD_REV DESC NULLS LAST`;
 // AGENT-WISE FINANCE QUERY
 // Same KPIs as city-level finance, grouped by CITY + AGENT + LOB
 // ============================================================
-export function buildAgentFinanceQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildAgentFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -408,6 +419,10 @@ WITH base AS (
       TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', f.assignment_reacheddropoffat_timestamp)),
       TO_DATE(f.FULFILLMENT_FULFILLED_AT_IST)
     ) AS fin_date,
+    TIME(COALESCE(
+      CONVERT_TIMEZONE('UTC','Asia/Kolkata', f.assignment_reacheddropoffat_timestamp),
+      f.FULFILLMENT_FULFILLED_AT_IST
+    )) AS fin_time,
     f.order_id, f.META_IS_FREE_TRIP, f.META_IS_BILL_TO_PATIENT,
     f.PAYMENTS_TOTAL_ORDER_AMOUNT, f.PAYMENTS_MARGIN, f.PAYMENTS_TOTAL_DISCOUNT,
     f.DIGITAL_CUSTOMER_PAYMENT_AMOUNT, f.ASSIGNMENT_PROVIDER_TYPE,
@@ -461,8 +476,8 @@ SELECT
   COUNT(CASE WHEN fin_date='${today}' THEN order_id END) AS TODAY_TRIPS,
   ROUND(SUM(CASE WHEN fin_date='${today}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
     ELSE IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0)/100 END ELSE 0 END),0) AS TODAY_REV,
-  COUNT(CASE WHEN fin_date='${yesterday}' THEN order_id END) AS YDAY_TRIPS,
-  ROUND(SUM(CASE WHEN fin_date='${yesterday}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
+  COUNT(CASE WHEN fin_date='${yesterday}' AND fin_time<='${currentISTTime}' THEN order_id END) AS YDAY_TRIPS,
+  ROUND(SUM(CASE WHEN fin_date='${yesterday}' AND fin_time<='${currentISTTime}' THEN CASE WHEN IFNULL(META_IS_FREE_TRIP,FALSE)=TRUE THEN 0
     ELSE IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT,0)/100 END ELSE 0 END),0) AS YDAY_REV
 FROM base
 GROUP BY CITY, AGENT_EMAIL, LOB
@@ -475,7 +490,7 @@ ORDER BY MTD_REV DESC NULLS LAST`;
 // Groups by Hospital, Provider Type, Service Type
 // Shows revenue projection at booking stage
 // ============================================================
-export function buildFinanceAnalyticsFunnelQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildFinanceAnalyticsFunnelQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -490,7 +505,8 @@ WITH base AS (
     bo.META_IS_BILL_TO_PATIENT,
     bo.PAYMENTS_TOTAL_ORDER_AMOUNT,
     bo.PAYMENTS_MARGIN,
-    DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) AS created_date
+    DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) AS created_date,
+    TIME(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.META_CREATED_AT_TIMESTAMP)) AS created_time
   FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
   LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED n
     ON bo.META_SITE_ID = n.SITE_ID
@@ -522,8 +538,8 @@ SELECT
   COUNT(CASE WHEN META_IS_BILL_TO_PATIENT = TRUE THEN ORDER_ID END) AS DIRECT_PAY_COUNT,
   COUNT(CASE WHEN created_date = '${today}' THEN ORDER_ID END) AS TODAY_BOOKINGS,
   ROUND(SUM(CASE WHEN created_date = '${today}' AND IFNULL(META_IS_FREE_TRIP, FALSE) != TRUE THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT, 0) / 100 ELSE 0 END), 0) AS TODAY_REV,
-  COUNT(CASE WHEN created_date = '${yesterday}' THEN ORDER_ID END) AS YDAY_BOOKINGS,
-  ROUND(SUM(CASE WHEN created_date = '${yesterday}' AND IFNULL(META_IS_FREE_TRIP, FALSE) != TRUE THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT, 0) / 100 ELSE 0 END), 0) AS YDAY_REV
+  COUNT(CASE WHEN created_date = '${yesterday}' AND created_time <= '${currentISTTime}' THEN ORDER_ID END) AS YDAY_BOOKINGS,
+  ROUND(SUM(CASE WHEN created_date = '${yesterday}' AND created_time <= '${currentISTTime}' AND IFNULL(META_IS_FREE_TRIP, FALSE) != TRUE THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT, 0) / 100 ELSE 0 END), 0) AS YDAY_REV
 FROM base
 GROUP BY HOSPITAL, CITY, PROVIDER_TYPE, SERVICE_TYPE
 HAVING COUNT(*) > 0
@@ -535,7 +551,7 @@ ORDER BY TOTAL_REV DESC NULLS LAST`;
 // Groups by Hospital, Provider Type, Service Type
 // Shows actual delivered/accrual revenue based on fulfillment date
 // ============================================================
-export function buildFinanceAnalyticsFinanceQuery(mtdStart, mtdEnd, today, yesterday) {
+export function buildFinanceAnalyticsFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) {
   return `
 WITH base AS (
   SELECT
@@ -553,7 +569,11 @@ WITH base AS (
     COALESCE(
       TO_DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.assignment_reacheddropoffat_timestamp)),
       TO_DATE(bo.FULFILLMENT_FULFILLED_AT_IST)
-    ) AS fin_date
+    ) AS fin_date,
+    TIME(COALESCE(
+      CONVERT_TIMEZONE('UTC','Asia/Kolkata', bo.assignment_reacheddropoffat_timestamp),
+      bo.FULFILLMENT_FULFILLED_AT_IST
+    )) AS fin_time
   FROM BLADE.CORE.RED_BLADE_ORDERS_FINAL bo
   LEFT JOIN BLADE.CORE.BLADE_ORGANIZATION_ENTITIES_NEW_FLATTENED n
     ON bo.META_SITE_ID = n.SITE_ID
@@ -587,8 +607,8 @@ SELECT
   COUNT(CASE WHEN META_IS_BILL_TO_PATIENT = TRUE THEN ORDER_ID END) AS DIRECT_PAY_COUNT,
   COUNT(CASE WHEN fin_date = '${today}' THEN ORDER_ID END) AS TODAY_TRIPS,
   ROUND(SUM(CASE WHEN fin_date = '${today}' AND IFNULL(META_IS_FREE_TRIP, FALSE) != TRUE THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT, 0) / 100 ELSE 0 END), 0) AS TODAY_REV,
-  COUNT(CASE WHEN fin_date = '${yesterday}' THEN ORDER_ID END) AS YDAY_TRIPS,
-  ROUND(SUM(CASE WHEN fin_date = '${yesterday}' AND IFNULL(META_IS_FREE_TRIP, FALSE) != TRUE THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT, 0) / 100 ELSE 0 END), 0) AS YDAY_REV
+  COUNT(CASE WHEN fin_date = '${yesterday}' AND fin_time <= '${currentISTTime}' THEN ORDER_ID END) AS YDAY_TRIPS,
+  ROUND(SUM(CASE WHEN fin_date = '${yesterday}' AND fin_time <= '${currentISTTime}' AND IFNULL(META_IS_FREE_TRIP, FALSE) != TRUE THEN IFNULL(PAYMENTS_TOTAL_ORDER_AMOUNT, 0) / 100 ELSE 0 END), 0) AS YDAY_REV
 FROM base
 GROUP BY HOSPITAL, CITY, PROVIDER_TYPE, SERVICE_TYPE
 HAVING COUNT(*) > 0
