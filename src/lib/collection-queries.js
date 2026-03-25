@@ -116,17 +116,26 @@ WITH raw_orders AS (
     AND IFNULL(bo.META_SERVICEDETAILS_SERVICETYPE, '') NOT IN ('AIR_AMBULANCE', 'DEAD_BODY_AIR_CARGO')
 ),
 
--- Orders that received payment at terminal account (bank) within the selected date range
+-- SINGLE SCAN of BLADE_TRANSACTIONS_DATA for terminal account (bank) transactions
+-- Computes: orders_in_scope (period filter), bank_alltime, bank_period in ONE pass
 -- Terminal account = Red Health / Red Health Finance Admin
 -- TIMESTAMP is epoch (UTC) → convert to IST for date filtering
-orders_in_scope AS (
-  SELECT DISTINCT trm.ORDER_ID
+terminal_txns AS (
+  SELECT
+    trm.ORDER_ID,
+    ROUND(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100, 0) as amt,
+    DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) as txn_date_ist
   FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
-  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
+  INNER JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
   WHERE trm.ORG_ID = '${ORG_ID}'
     AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
     AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
-    AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'
+),
+
+-- Orders that had any terminal account payment in the selected date range
+orders_in_scope AS (
+  SELECT DISTINCT ORDER_ID FROM terminal_txns
+  WHERE txn_date_ist BETWEEN '${startDate}' AND '${endDate}'
 ),
 
 base_orders AS (
@@ -137,33 +146,19 @@ base_orders AS (
     ${citiesFilter}
 ),
 
--- TERMINAL ACCOUNT (ALL-TIME): Total amount ever received in Red Health bank for these orders
+-- All-time bank amount (from the single scan)
 bank_alltime AS (
-  SELECT
-    trm.ORDER_ID,
-    ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100), 0) as bank_amount
-  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
-  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao
-    ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
-  WHERE trm.ORG_ID = '${ORG_ID}'
-    AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
-    AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
-  GROUP BY trm.ORDER_ID
+  SELECT ORDER_ID, SUM(amt) as bank_amount
+  FROM terminal_txns
+  GROUP BY ORDER_ID
 ),
 
--- TERMINAL ACCOUNT (THIS PERIOD): Amount received at bank within selected date range only
+-- Period bank amount (from the single scan)
 bank_period AS (
-  SELECT
-    trm.ORDER_ID,
-    ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100), 0) as bank_amount_period
-  FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
-  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao
-    ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
-  WHERE trm.ORG_ID = '${ORG_ID}'
-    AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
-    AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
-    AND DATE(CONVERT_TIMEZONE('UTC','Asia/Kolkata', TO_TIMESTAMP(trm.TIMESTAMP))) BETWEEN '${startDate}' AND '${endDate}'
-  GROUP BY trm.ORDER_ID
+  SELECT ORDER_ID, SUM(amt) as bank_amount_period
+  FROM terminal_txns
+  WHERE txn_date_ist BETWEEN '${startDate}' AND '${endDate}'
+  GROUP BY ORDER_ID
 ),
 
 -- WALLET INTERNAL: Outstanding balance held by internal employees (HM, Pilot, etc.)
@@ -409,7 +404,7 @@ daily_bank AS (
   SELECT ${bankDateExpr} as trend_date, trm.ORDER_ID,
     ROUND(SUM(TRY_TO_NUMBER(NULLIF(trm.AMOUNT::STRING, '')) / 100.0), 0) as collected
   FROM BLADE.RAW.BLADE_TRANSACTIONS_DATA trm
-  LEFT JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
+  INNER JOIN BLADE.RAW.BLADE_ACCOUNTS_DATA bao ON trm.CREDIT_ACCOUNT_ID = bao.ACCOUNT_ID
   WHERE trm.ORG_ID = '${ORG_ID}'
     AND bao.NAME IN ('Red Health', 'Red Health Finance Admin')
     AND trm.TRANSACTION_TYPE IN ('ORDER_PAYMENTS', 'BTC_TO_BTP', 'OFFLINE_ORDER_PAYMENTS', 'AUTO_ADJUSTMENT_SETTLEMENT')
@@ -530,6 +525,7 @@ LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-ORDER BY ro.city, ro.created_date DESC, ro.ORDER_ID;
+ORDER BY ro.city, ro.created_date DESC, ro.ORDER_ID
+LIMIT 10000;
   `;
 }
