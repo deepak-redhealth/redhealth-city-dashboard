@@ -40,7 +40,7 @@ export async function validateSession(token) {
   if (!token) return null;
   const rows = await executeQuery(`
     SELECT s.USER_EMAIL, s.IP_ADDRESS, s.EXPIRES_AT, s.IS_ACTIVE,
-           u.NAME, u.ROLE, u.ACCESS_LEVEL, u.ALLOWED_ZONES, u.ALLOWED_CITIES, u.ALLOWED_ENDPOINTS, u.IS_ACTIVE AS USER_ACTIVE
+           u.NAME, u.ROLE, u.ACCESS_LEVEL, u.ALLOWED_ZONES, u.ALLOWED_CITIES, u.ALLOWED_ENDPOINTS, u.ALLOWED_LOBS, u.IS_ACTIVE AS USER_ACTIVE
     FROM BLADE.CORE.DASHBOARD_SESSIONS s
     JOIN BLADE.CORE.DASHBOARD_USERS u ON LOWER(s.USER_EMAIL) = LOWER(u.EMAIL)
     WHERE s.SESSION_TOKEN = '${token}'
@@ -59,6 +59,7 @@ export async function validateSession(token) {
     allowedZones: r.ALLOWED_ZONES ? (typeof r.ALLOWED_ZONES === 'string' ? JSON.parse(r.ALLOWED_ZONES) : r.ALLOWED_ZONES) : null,
     allowedCities: r.ALLOWED_CITIES ? (typeof r.ALLOWED_CITIES === 'string' ? JSON.parse(r.ALLOWED_CITIES) : r.ALLOWED_CITIES) : null,
     allowedEndpoints: r.ALLOWED_ENDPOINTS ? (typeof r.ALLOWED_ENDPOINTS === 'string' ? JSON.parse(r.ALLOWED_ENDPOINTS) : r.ALLOWED_ENDPOINTS) : null,
+    allowedLobs: r.ALLOWED_LOBS ? (typeof r.ALLOWED_LOBS === 'string' ? JSON.parse(r.ALLOWED_LOBS) : r.ALLOWED_LOBS) : null,
   };
 }
 
