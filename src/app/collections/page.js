@@ -261,11 +261,59 @@ export default function CollectionsPage() {
     return Object.entries(riskCounts).map(([tag, count]) => ({ tag, count }));
   };
 
-  // Helper: extract unique non-empty values for a column from data
-  const getUniqueValues = (colKey) => {
+  // All active filters as a map: { filterKey: { colKey, value } }
+  const allFilters = {
+    city: { col: 'CITY', val: filterCity },
+    hospital: { col: 'HOSPITAL_NAME', val: filterHospital },
+    lob: { col: 'LOB', val: filterLob },
+    providerType: { col: 'PROVIDER_TYPE', val: filterProviderType },
+    orderStatus: { col: 'ORDER_STATUS', val: filterOrderStatus },
+    partnerName: { col: 'PARTNER_NAME', val: filterPartnerName },
+    agentEmail: { col: 'AGENT_EMAIL', val: filterAgentEmail }, // also checks EMPLOYEE_EMAIL
+    b2h: { col: 'B2H', val: filterB2H }, // special handling
+  };
+
+  // Helper: check if a row matches a single filter
+  const rowMatchesFilter = (row, filterKey) => {
+    const f = allFilters[filterKey];
+    if (!f.val) return true;
+    if (filterKey === 'b2h') {
+      const b2pKey = Object.keys(row).find(k => k.toUpperCase() === 'META_IS_BILL_TO_PATIENT');
+      if (!b2pKey) return true;
+      const isB2P = row[b2pKey] === true || row[b2pKey] === 'true' || row[b2pKey] === 1;
+      if (f.val === 'B2P') return isB2P;
+      if (f.val === 'B2H') return !isB2P;
+      return true;
+    }
+    if (filterKey === 'agentEmail') {
+      const key1 = Object.keys(row).find(k => k.toUpperCase() === 'AGENT_EMAIL');
+      const key2 = Object.keys(row).find(k => k.toUpperCase() === 'EMPLOYEE_EMAIL');
+      const k = key1 || key2;
+      if (!k) return true;
+      return String(row[k]).trim() === f.val;
+    }
+    const key = Object.keys(row).find(k => k.toUpperCase() === f.col);
+    if (!key) return true;
+    return String(row[key]).trim() === f.val;
+  };
+
+  // Helper: filter data applying ALL filters EXCEPT the excluded one
+  // Used to compute available options for each dropdown (interconnected)
+  const filterDataExcluding = (excludeKey) => {
+    return data.filter(row => {
+      for (const fk of Object.keys(allFilters)) {
+        if (fk === excludeKey) continue;
+        if (!rowMatchesFilter(row, fk)) return false;
+      }
+      if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
+      return true;
+    });
+  };
+
+  // Get unique values for a column from a dataset
+  const uniqueVals = (dataset, colKey) => {
     const vals = new Set();
-    data.forEach(row => {
-      // Check multiple possible column name casings
+    dataset.forEach(row => {
       const key = Object.keys(row).find(k => k.toUpperCase() === colKey);
       if (key && row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== '') {
         vals.add(String(row[key]).trim());
@@ -274,38 +322,28 @@ export default function CollectionsPage() {
     return [...vals].sort();
   };
 
-  // Client-side filtered data
+  // Interconnected options: each dropdown shows only values compatible with all OTHER selected filters
+  const optionsCity = uniqueVals(filterDataExcluding('city'), 'CITY');
+  const optionsHospital = uniqueVals(filterDataExcluding('hospital'), 'HOSPITAL_NAME');
+  const optionsLob = uniqueVals(filterDataExcluding('lob'), 'LOB');
+  const optionsProviderType = uniqueVals(filterDataExcluding('providerType'), 'PROVIDER_TYPE');
+  const optionsOrderStatus = uniqueVals(filterDataExcluding('orderStatus'), 'ORDER_STATUS');
+  const optionsPartnerName = uniqueVals(filterDataExcluding('partnerName'), 'PARTNER_NAME');
+  const optionsAgentEmail = uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL').length > 0
+    ? uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL')
+    : uniqueVals(filterDataExcluding('agentEmail'), 'EMPLOYEE_EMAIL');
+
+  // Final filtered data (all filters applied)
   const filteredData = data.filter(row => {
-    const matchCol = (filterVal, colKey) => {
-      if (!filterVal) return true;
-      const key = Object.keys(row).find(k => k.toUpperCase() === colKey);
-      if (!key) return true; // column not present in this tab, skip filter
-      return String(row[key]).trim() === filterVal;
-    };
-    if (!matchCol(filterCity, 'CITY')) return false;
-    if (!matchCol(filterHospital, 'HOSPITAL_NAME')) return false;
-    if (!matchCol(filterProviderType, 'PROVIDER_TYPE')) return false;
-    if (!matchCol(filterOrderStatus, 'ORDER_STATUS')) return false;
-    if (!matchCol(filterPartnerName, 'PARTNER_NAME')) return false;
-    if (!matchCol(filterAgentEmail, 'AGENT_EMAIL') && !matchCol(filterAgentEmail, 'EMPLOYEE_EMAIL')) return false;
-    if (!matchCol(filterLob, 'LOB')) return false;
-    // B2H / B2P filter
-    if (filterB2H) {
-      const b2pKey = Object.keys(row).find(k => k.toUpperCase() === 'META_IS_BILL_TO_PATIENT');
-      if (b2pKey) {
-        const isB2P = row[b2pKey] === true || row[b2pKey] === 'true' || row[b2pKey] === 1;
-        if (filterB2H === 'B2P' && !isB2P) return false;
-        if (filterB2H === 'B2H' && isB2P) return false;
-      }
+    for (const fk of Object.keys(allFilters)) {
+      if (!rowMatchesFilter(row, fk)) return false;
     }
-    // Ageing filter
     if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
     return true;
   });
   const cols = getCols();
 
-  // Reset client-side filters when data changes (new tab/fetch)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Reset all client-side filters
   const resetFilters = () => {
     setFilterCity(''); setFilterHospital(''); setFilterB2H('');
     setFilterProviderType(''); setFilterOrderStatus('');
@@ -386,34 +424,34 @@ export default function CollectionsPage() {
           {data.length > 0 && (
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid #eee' }}>
               {/* City */}
-              {getUniqueValues('CITY').length > 0 && (
+              {optionsCity.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>City</label>
                   <select value={filterCity} onChange={e => setFilterCity(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 100 }}>
                     <option value="">All</option>
-                    {getUniqueValues('CITY').map(v => <option key={v} value={v}>{v}</option>)}
+                    {optionsCity.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
               )}
 
               {/* Hospital */}
-              {getUniqueValues('HOSPITAL_NAME').length > 0 && (
+              {optionsHospital.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Hospital</label>
                   <select value={filterHospital} onChange={e => setFilterHospital(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 120 }}>
                     <option value="">All</option>
-                    {getUniqueValues('HOSPITAL_NAME').map(v => <option key={v} value={v}>{v}</option>)}
+                    {optionsHospital.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
               )}
 
-              {/* LOB (client-side) */}
-              {getUniqueValues('LOB').length > 0 && (
+              {/* LOB */}
+              {optionsLob.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>LOB</label>
                   <select value={filterLob} onChange={e => setFilterLob(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 100 }}>
                     <option value="">All</option>
-                    {getUniqueValues('LOB').map(v => <option key={v} value={v}>{v}</option>)}
+                    {optionsLob.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
               )}
@@ -429,45 +467,45 @@ export default function CollectionsPage() {
               </div>
 
               {/* Provider Type */}
-              {getUniqueValues('PROVIDER_TYPE').length > 0 && (
+              {optionsProviderType.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Provider Type</label>
                   <select value={filterProviderType} onChange={e => setFilterProviderType(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 100 }}>
                     <option value="">All</option>
-                    {getUniqueValues('PROVIDER_TYPE').map(v => <option key={v} value={v}>{v}</option>)}
+                    {optionsProviderType.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
               )}
 
               {/* Order Status */}
-              {getUniqueValues('ORDER_STATUS').length > 0 && (
+              {optionsOrderStatus.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Order Status</label>
                   <select value={filterOrderStatus} onChange={e => setFilterOrderStatus(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 110 }}>
                     <option value="">All</option>
-                    {getUniqueValues('ORDER_STATUS').map(v => <option key={v} value={v}>{v}</option>)}
+                    {optionsOrderStatus.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
               )}
 
               {/* Partner Name */}
-              {getUniqueValues('PARTNER_NAME').length > 0 && (
+              {optionsPartnerName.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Partner</label>
                   <select value={filterPartnerName} onChange={e => setFilterPartnerName(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 120 }}>
                     <option value="">All</option>
-                    {getUniqueValues('PARTNER_NAME').map(v => <option key={v} value={v}>{v}</option>)}
+                    {optionsPartnerName.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
               )}
 
               {/* Agent Email */}
-              {(getUniqueValues('AGENT_EMAIL').length > 0 || getUniqueValues('EMPLOYEE_EMAIL').length > 0) && (
+              {optionsAgentEmail.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>Agent Email</label>
                   <select value={filterAgentEmail} onChange={e => setFilterAgentEmail(e.target.value)} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ddd', fontSize: 12, minWidth: 150 }}>
                     <option value="">All</option>
-                    {(getUniqueValues('AGENT_EMAIL').length > 0 ? getUniqueValues('AGENT_EMAIL') : getUniqueValues('EMPLOYEE_EMAIL')).map(v => <option key={v} value={v}>{v}</option>)}
+                    {optionsAgentEmail.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
               )}
