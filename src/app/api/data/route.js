@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { validateSession, resolveCities } from '@/lib/auth';
 import { executeQuery } from '@/lib/snowflake';
 import { buildFunnelQuery, buildFinanceQuery, buildAgentQuery, buildHospitalQuery, buildAgentFinanceQuery, buildHospitalFinanceQuery, buildFinanceAnalyticsFunnelQuery, buildFinanceAnalyticsFinanceQuery } from '@/lib/queries';
+import {
+  buildCollectionsLOBSummaryQuery, buildCollectionsSummaryQuery, buildCollectionsHospitalQuery,
+  buildCollectionsPartnerQuery, buildCollectionsEmployeeQuery, buildCollectionsTrendQuery,
+  buildCollectionsAgeingDetailQuery, buildCollectionsB2HSummaryQuery, buildCollectionsRawReportQuery
+} from '@/lib/collection-queries';
 import { getDateRange } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +44,13 @@ export async function GET(request) {
     const today = searchParams.get('today') || dates.today;
     const yesterday = searchParams.get('yesterday') || dates.yesterday;
 
+    // Collection-specific params
+    const collStartDate = searchParams.get('startDate') || mtdStart;
+    const collEndDate = searchParams.get('endDate') || mtdEnd;
+    const collDateType = searchParams.get('dateType') || 'order_created';
+    const collLob = searchParams.get('lob') || '';
+    const cityString = cities ? cities.join(',') : '';
+
     let sql;
     switch (type) {
       case 'funnel':
@@ -64,6 +76,34 @@ export async function GET(request) {
         break;
       case 'finance-analytics-finance':
         sql = buildFinanceAnalyticsFinanceQuery(mtdStart, mtdEnd, today, yesterday);
+        break;
+      // Collections dashboard types
+      case 'coll-lob':
+        sql = buildCollectionsLOBSummaryQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-summary':
+        sql = buildCollectionsSummaryQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-hospital':
+        sql = buildCollectionsHospitalQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-partner':
+        sql = buildCollectionsPartnerQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-employee':
+        sql = buildCollectionsEmployeeQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-trend':
+        sql = buildCollectionsTrendQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-ageing':
+        sql = buildCollectionsAgeingDetailQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-b2h':
+        sql = buildCollectionsB2HSummaryQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
+        break;
+      case 'coll-raw':
+        sql = buildCollectionsRawReportQuery(collStartDate, collEndDate, collDateType, collLob, cityString);
         break;
       default:
         return NextResponse.json({ error: 'Invalid data type' }, { status: 400 });
