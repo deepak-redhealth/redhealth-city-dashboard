@@ -329,20 +329,26 @@ export default function CollectionsPage() {
   }, [colKeyMap]);
 
   // ── Memoized interconnected filter options ──
-  const filterDeps = [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter];
-
-  const optionsCity = useMemo(() => uniqueVals(filterDataExcluding('city'), 'CITY'), filterDeps);
-  const optionsHospital = useMemo(() => uniqueVals(filterDataExcluding('hospital'), 'HOSPITAL_NAME'), filterDeps);
-  const optionsLob = useMemo(() => uniqueVals(filterDataExcluding('lob'), 'LOB'), filterDeps);
-  const optionsProviderType = useMemo(() => uniqueVals(filterDataExcluding('providerType'), 'PROVIDER_TYPE'), filterDeps);
-  const optionsOrderStatus = useMemo(() => uniqueVals(filterDataExcluding('orderStatus'), 'ORDER_STATUS'), filterDeps);
-  const optionsPartnerName = useMemo(() => uniqueVals(filterDataExcluding('partnerName'), 'PARTNER_NAME'), filterDeps);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const optionsCity = useMemo(() => uniqueVals(filterDataExcluding('city'), 'CITY'), [data, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const optionsHospital = useMemo(() => uniqueVals(filterDataExcluding('hospital'), 'HOSPITAL_NAME'), [data, filterCity, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const optionsLob = useMemo(() => uniqueVals(filterDataExcluding('lob'), 'LOB'), [data, filterCity, filterHospital, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const optionsProviderType = useMemo(() => uniqueVals(filterDataExcluding('providerType'), 'PROVIDER_TYPE'), [data, filterCity, filterHospital, filterLob, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const optionsOrderStatus = useMemo(() => uniqueVals(filterDataExcluding('orderStatus'), 'ORDER_STATUS'), [data, filterCity, filterHospital, filterLob, filterProviderType, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const optionsPartnerName = useMemo(() => uniqueVals(filterDataExcluding('partnerName'), 'PARTNER_NAME'), [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const optionsAgentEmail = useMemo(() => {
     const ae = uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL');
     return ae.length > 0 ? ae : uniqueVals(filterDataExcluding('agentEmail'), 'EMPLOYEE_EMAIL');
-  }, filterDeps);
+  }, [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterB2H, activeTab, ageingFilter]);
 
   // ── Memoized final filtered data ──
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const filteredData = useMemo(() => {
     const filterKeys = Object.keys(allFilters);
     return data.filter(row => {
@@ -352,7 +358,7 @@ export default function CollectionsPage() {
       if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
       return true;
     });
-  }, filterDeps);
+  }, [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
 
   const cols = getCols();
 
