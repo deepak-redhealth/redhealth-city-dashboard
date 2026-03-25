@@ -18,6 +18,7 @@ export const CITY_NAMES = {
   BLG: 'Belgaum', AMD: 'Ahmedabad', NGP: 'Nagpur', PCK: 'Panchkula',
   FDB: 'Faridabad', RNC: 'Ranchi', JPR: 'Jaipur', NMB: 'Navi Mumbai',
   GKP: 'Gorakhpur', VIPU: 'Visakhapatnam', PNE: 'Pune', CHGL: 'Chandigarh',
+  DIGITAL: 'Digital',
 };
 
 // Monthly Targets (March 2026)
