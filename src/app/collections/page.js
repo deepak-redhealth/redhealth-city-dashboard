@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function CollectionsPage() {
@@ -261,86 +261,99 @@ export default function CollectionsPage() {
     return Object.entries(riskCounts).map(([tag, count]) => ({ tag, count }));
   };
 
-  // All active filters as a map: { filterKey: { colKey, value } }
-  const allFilters = {
+  // ── Pre-compute column key lookups once when data changes (avoids repeated Object.keys().find() per row) ──
+  const colKeyMap = useMemo(() => {
+    if (data.length === 0) return {};
+    const keys = Object.keys(data[0]);
+    const map = {};
+    const targets = ['CITY', 'HOSPITAL_NAME', 'LOB', 'PROVIDER_TYPE', 'ORDER_STATUS', 'PARTNER_NAME', 'AGENT_EMAIL', 'EMPLOYEE_EMAIL', 'META_IS_BILL_TO_PATIENT'];
+    targets.forEach(t => { map[t] = keys.find(k => k.toUpperCase() === t) || null; });
+    return map;
+  }, [data]);
+
+  // All active filters as a map
+  const allFilters = useMemo(() => ({
     city: { col: 'CITY', val: filterCity },
     hospital: { col: 'HOSPITAL_NAME', val: filterHospital },
     lob: { col: 'LOB', val: filterLob },
     providerType: { col: 'PROVIDER_TYPE', val: filterProviderType },
     orderStatus: { col: 'ORDER_STATUS', val: filterOrderStatus },
     partnerName: { col: 'PARTNER_NAME', val: filterPartnerName },
-    agentEmail: { col: 'AGENT_EMAIL', val: filterAgentEmail }, // also checks EMPLOYEE_EMAIL
-    b2h: { col: 'B2H', val: filterB2H }, // special handling
-  };
+    agentEmail: { col: 'AGENT_EMAIL', val: filterAgentEmail },
+    b2h: { col: 'B2H', val: filterB2H },
+  }), [filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H]);
 
-  // Helper: check if a row matches a single filter
-  const rowMatchesFilter = (row, filterKey) => {
+  // Fast row matcher using pre-computed column keys
+  const rowMatchesFilter = useCallback((row, filterKey) => {
     const f = allFilters[filterKey];
     if (!f.val) return true;
     if (filterKey === 'b2h') {
-      const b2pKey = Object.keys(row).find(k => k.toUpperCase() === 'META_IS_BILL_TO_PATIENT');
-      if (!b2pKey) return true;
-      const isB2P = row[b2pKey] === true || row[b2pKey] === 'true' || row[b2pKey] === 1;
-      if (f.val === 'B2P') return isB2P;
-      if (f.val === 'B2H') return !isB2P;
-      return true;
+      const k = colKeyMap['META_IS_BILL_TO_PATIENT'];
+      if (!k) return true;
+      const isB2P = row[k] === true || row[k] === 'true' || row[k] === 1;
+      return f.val === 'B2P' ? isB2P : !isB2P;
     }
     if (filterKey === 'agentEmail') {
-      const key1 = Object.keys(row).find(k => k.toUpperCase() === 'AGENT_EMAIL');
-      const key2 = Object.keys(row).find(k => k.toUpperCase() === 'EMPLOYEE_EMAIL');
-      const k = key1 || key2;
+      const k = colKeyMap['AGENT_EMAIL'] || colKeyMap['EMPLOYEE_EMAIL'];
       if (!k) return true;
       return String(row[k]).trim() === f.val;
     }
-    const key = Object.keys(row).find(k => k.toUpperCase() === f.col);
-    if (!key) return true;
-    return String(row[key]).trim() === f.val;
-  };
+    const k = colKeyMap[f.col];
+    if (!k) return true;
+    return String(row[k]).trim() === f.val;
+  }, [allFilters, colKeyMap]);
 
   // Helper: filter data applying ALL filters EXCEPT the excluded one
-  // Used to compute available options for each dropdown (interconnected)
-  const filterDataExcluding = (excludeKey) => {
+  const filterDataExcluding = useCallback((excludeKey) => {
+    const filterKeys = Object.keys(allFilters);
     return data.filter(row => {
-      for (const fk of Object.keys(allFilters)) {
+      for (const fk of filterKeys) {
         if (fk === excludeKey) continue;
         if (!rowMatchesFilter(row, fk)) return false;
       }
       if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
       return true;
     });
-  };
+  }, [data, allFilters, rowMatchesFilter, activeTab, ageingFilter]);
 
-  // Get unique values for a column from a dataset
-  const uniqueVals = (dataset, colKey) => {
+  // Get unique values for a column from a dataset (uses pre-computed key map)
+  const uniqueVals = useCallback((dataset, colKey) => {
+    const key = colKeyMap[colKey];
+    if (!key) return [];
     const vals = new Set();
-    dataset.forEach(row => {
-      const key = Object.keys(row).find(k => k.toUpperCase() === colKey);
-      if (key && row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== '') {
-        vals.add(String(row[key]).trim());
-      }
-    });
-    return [...vals].sort();
-  };
-
-  // Interconnected options: each dropdown shows only values compatible with all OTHER selected filters
-  const optionsCity = uniqueVals(filterDataExcluding('city'), 'CITY');
-  const optionsHospital = uniqueVals(filterDataExcluding('hospital'), 'HOSPITAL_NAME');
-  const optionsLob = uniqueVals(filterDataExcluding('lob'), 'LOB');
-  const optionsProviderType = uniqueVals(filterDataExcluding('providerType'), 'PROVIDER_TYPE');
-  const optionsOrderStatus = uniqueVals(filterDataExcluding('orderStatus'), 'ORDER_STATUS');
-  const optionsPartnerName = uniqueVals(filterDataExcluding('partnerName'), 'PARTNER_NAME');
-  const optionsAgentEmail = uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL').length > 0
-    ? uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL')
-    : uniqueVals(filterDataExcluding('agentEmail'), 'EMPLOYEE_EMAIL');
-
-  // Final filtered data (all filters applied)
-  const filteredData = data.filter(row => {
-    for (const fk of Object.keys(allFilters)) {
-      if (!rowMatchesFilter(row, fk)) return false;
+    for (let i = 0; i < dataset.length; i++) {
+      const v = dataset[i][key];
+      if (v !== null && v !== undefined && String(v).trim() !== '') vals.add(String(v).trim());
     }
-    if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
-    return true;
-  });
+    return [...vals].sort();
+  }, [colKeyMap]);
+
+  // ── Memoized interconnected filter options ──
+  const filterDeps = [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter];
+
+  const optionsCity = useMemo(() => uniqueVals(filterDataExcluding('city'), 'CITY'), filterDeps);
+  const optionsHospital = useMemo(() => uniqueVals(filterDataExcluding('hospital'), 'HOSPITAL_NAME'), filterDeps);
+  const optionsLob = useMemo(() => uniqueVals(filterDataExcluding('lob'), 'LOB'), filterDeps);
+  const optionsProviderType = useMemo(() => uniqueVals(filterDataExcluding('providerType'), 'PROVIDER_TYPE'), filterDeps);
+  const optionsOrderStatus = useMemo(() => uniqueVals(filterDataExcluding('orderStatus'), 'ORDER_STATUS'), filterDeps);
+  const optionsPartnerName = useMemo(() => uniqueVals(filterDataExcluding('partnerName'), 'PARTNER_NAME'), filterDeps);
+  const optionsAgentEmail = useMemo(() => {
+    const ae = uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL');
+    return ae.length > 0 ? ae : uniqueVals(filterDataExcluding('agentEmail'), 'EMPLOYEE_EMAIL');
+  }, filterDeps);
+
+  // ── Memoized final filtered data ──
+  const filteredData = useMemo(() => {
+    const filterKeys = Object.keys(allFilters);
+    return data.filter(row => {
+      for (const fk of filterKeys) {
+        if (!rowMatchesFilter(row, fk)) return false;
+      }
+      if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
+      return true;
+    });
+  }, filterDeps);
+
   const cols = getCols();
 
   // Reset all client-side filters
@@ -522,9 +535,9 @@ export default function CollectionsPage() {
         </div>
 
         {/* KPI Cards */}
-        {getKpiCards().length > 0 && (
+        {(() => { const kpis = getKpiCards(); return kpis.length > 0 ? (
           <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-            {getKpiCards().map((kpi, idx) => (
+            {kpis.map((kpi, idx) => (
               <div
                 key={idx}
                 style={{
@@ -541,7 +554,7 @@ export default function CollectionsPage() {
               </div>
             ))}
           </div>
-        )}
+        ) : null; })()}
 
         {/* Sub-tabs */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, borderBottom: '1px solid #e5e7eb', overflowX: 'auto' }}>
