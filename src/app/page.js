@@ -8,6 +8,7 @@ import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
 const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
 const fmtL = (n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014';
 const fmtR = (n) => n != null ? '\u20B9' + fmt(n) : '\u2014';
+const fmtRL = (n) => n != null ? '\u20B9' + (Number(n) / 100000).toFixed(2) + 'L' : '\u2014';
 const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '\u2014';
 const arrow = (curr, prev) => {
   if (curr == null || prev == null) return { icon: '\u2192', color: 'text-gray-400' };
@@ -492,7 +493,7 @@ export default function Dashboard() {
                 <SummaryCard label="MTD Bookings" value={fmt(totals.booking)} source="F" />
                 <SummaryCard label="MTD Completed" value={fmt(totals.tripComp)} source="F" />
                 <SummaryCard label="Revenue (Booked)" value={fmtL(totals.revL)} source="F" />
-                <SummaryCard label="Finance Revenue" value={fmtR(totals.finRev)} source="Fin" />
+                <SummaryCard label="Finance Revenue" value={fmtRL(totals.finRev)} source="Fin" />
                 <SummaryCard
                   label="Margin %"
                   value={pct(totals.marginPct)}
@@ -871,7 +872,7 @@ function HospitalSummary({ data }) {
                     <td className="px-2 py-2.5 text-right text-xs">{fmtL(h.TODAY_REV_BKD_L)}</td>
                     <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtL(h.YDAY_REV_BKD_L)}</td>
                     <td className="px-3 py-2.5 text-right border-l border-green-100">{fmt(hf.MTD_TRIPS_DELIVERED)}</td>
-                    <td className="px-3 py-2.5 text-right font-medium">{fmtR(hf.MTD_REV)}</td>
+                    <td className="px-3 py-2.5 text-right font-medium">{fmtRL(hf.MTD_REV)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(hf.MTD_MARGIN_PCT, TARGETS.margin_pct)}>{pct(hf.MTD_MARGIN_PCT)}</span>
                     </td>
@@ -881,11 +882,11 @@ function HospitalSummary({ data }) {
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(hf.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}>{pct(hf.MTD_OWN_ROAD_PCT)}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-right">{fmtR(hf.MTD_ROAD_REV)}</td>
+                    <td className="px-3 py-2.5 text-right">{fmtRL(hf.MTD_ROAD_REV)}</td>
                     <td className="px-2 py-2.5 text-right text-xs border-l border-green-100">{fmt(hf.TODAY_TRIPS)}</td>
                     <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(hf.YDAY_TRIPS)}</td>
-                    <td className="px-2 py-2.5 text-right text-xs">{fmtR(hf.TODAY_REV)}</td>
-                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtR(hf.YDAY_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmtRL(hf.TODAY_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtRL(hf.YDAY_REV)}</td>
                     <td className="px-3 py-2.5 text-center"><PerfBadge tier={h.tier} /></td>
                   </tr>
                 );
@@ -1082,7 +1083,7 @@ function AgentSummary({ data }) {
                     <td className="px-2 py-2.5 text-right text-xs">{fmtL(a.TODAY_REV_BKD_L)}</td>
                     <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtL(a.YDAY_REV_BKD_L)}</td>
                     <td className="px-3 py-2.5 text-right border-l border-green-100">{fmt(af.MTD_TRIPS_DELIVERED)}</td>
-                    <td className="px-3 py-2.5 text-right font-medium">{fmtR(af.MTD_REV)}</td>
+                    <td className="px-3 py-2.5 text-right font-medium">{fmtRL(af.MTD_REV)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(af.MTD_MARGIN_PCT, TARGETS.margin_pct)}>{pct(af.MTD_MARGIN_PCT)}</span>
                     </td>
@@ -1092,11 +1093,11 @@ function AgentSummary({ data }) {
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(af.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}>{pct(af.MTD_OWN_ROAD_PCT)}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-right">{fmtR(af.MTD_ROAD_REV)}</td>
+                    <td className="px-3 py-2.5 text-right">{fmtRL(af.MTD_ROAD_REV)}</td>
                     <td className="px-2 py-2.5 text-right text-xs border-l border-green-100">{fmt(af.TODAY_TRIPS)}</td>
                     <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(af.YDAY_TRIPS)}</td>
-                    <td className="px-2 py-2.5 text-right text-xs">{fmtR(af.TODAY_REV)}</td>
-                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtR(af.YDAY_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs">{fmtRL(af.TODAY_REV)}</td>
+                    <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmtRL(af.YDAY_REV)}</td>
                     <td className="px-3 py-2.5 text-center"><PerfBadge tier={a.tier} /></td>
                   </tr>
                 );
@@ -1156,7 +1157,7 @@ function CityRow({ city }) {
             {/* Finance section */}
             <div className="flex items-center gap-3 pl-4 border-l-2 border-green-400">
               <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-semibold">Fin</span>
-              <MetricPill label="Rev" value={fmtR(fin.MTD_REV)} />
+              <MetricPill label="Rev" value={fmtRL(fin.MTD_REV)} />
               <MetricPill
                 label="Margin"
                 value={pct(fin.MTD_MARGIN_PCT)}
@@ -1236,7 +1237,7 @@ function CityRow({ city }) {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     <FunnelRow label="Trips" mtd={fin.MTD_TRIPS_DELIVERED} today={fin.TODAY_TRIPS} yday={fin.YDAY_TRIPS} />
-                    <FunnelRow label="Revenue" mtd={fmtR(fin.MTD_REV)} today={fmtR(fin.TODAY_REV)} yday={fmtR(fin.YDAY_REV)} raw />
+                    <FunnelRow label="Revenue" mtd={fmtRL(fin.MTD_REV)} today={fmtRL(fin.TODAY_REV)} yday={fmtRL(fin.YDAY_REV)} raw />
                   </tbody>
                 </table>
               </div>
@@ -1254,7 +1255,7 @@ function CityRow({ city }) {
                   value={pct(fin.MTD_OWN_ROAD_PCT)}
                   color={statusColor(fin.MTD_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}
                   target="55%" />
-                <MiniStat label="Road Revenue" value={fmtR(fin.MTD_ROAD_REV)} />
+                <MiniStat label="Road Revenue" value={fmtRL(fin.MTD_ROAD_REV)} />
               </div>
             </div>
           </div>
