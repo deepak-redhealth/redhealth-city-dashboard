@@ -43,6 +43,7 @@ export async function GET(request) {
     const mtdEnd = searchParams.get('end') || dates.mtdEnd;
     const today = searchParams.get('today') || dates.today;
     const yesterday = searchParams.get('yesterday') || dates.yesterday;
+    const currentISTTime = dates.currentISTTime;
 
     // Collection-specific params
     const collStartDate = searchParams.get('startDate') || mtdStart;
@@ -54,28 +55,28 @@ export async function GET(request) {
     let sql;
     switch (type) {
       case 'funnel':
-        sql = buildFunnelQuery(mtdStart, mtdEnd, today, yesterday);
+        sql = buildFunnelQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime);
         break;
       case 'finance':
-        sql = buildFinanceQuery(mtdStart, mtdEnd, today, yesterday);
+        sql = buildFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime);
         break;
       case 'agent':
-        sql = buildAgentQuery(mtdStart, mtdEnd, today, yesterday);
+        sql = buildAgentQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime);
         break;
       case 'hospital':
-        sql = buildHospitalQuery(mtdStart, mtdEnd, today, yesterday);
+        sql = buildHospitalQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime);
         break;
       case 'agent-finance':
-        sql = buildAgentFinanceQuery ? buildAgentFinanceQuery(mtdStart, mtdEnd, today, yesterday) : null;
+        sql = buildAgentFinanceQuery ? buildAgentFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) : null;
         break;
       case 'hospital-finance':
-        sql = buildHospitalFinanceQuery ? buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday) : null;
+        sql = buildHospitalFinanceQuery ? buildHospitalFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime) : null;
         break;
       case 'finance-analytics-funnel':
-        sql = buildFinanceAnalyticsFunnelQuery(mtdStart, mtdEnd, today, yesterday);
+        sql = buildFinanceAnalyticsFunnelQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime);
         break;
       case 'finance-analytics-finance':
-        sql = buildFinanceAnalyticsFinanceQuery(mtdStart, mtdEnd, today, yesterday);
+        sql = buildFinanceAnalyticsFinanceQuery(mtdStart, mtdEnd, today, yesterday, currentISTTime);
         break;
       // Collections dashboard types
       case 'coll-lob':
@@ -135,7 +136,7 @@ export async function GET(request) {
 
     return NextResponse.json({
       data: rows,
-      dates: { mtdStart, mtdEnd, today, yesterday, reportDate: dates.reportDate, monthName: dates.monthName },
+      dates: { mtdStart, mtdEnd, today, yesterday, currentISTTime, reportDate: dates.reportDate, monthName: dates.monthName },
       user: { email: session.email, name: session.name, role: session.role, accessLevel: session.accessLevel }
     });
   } catch (error) {
