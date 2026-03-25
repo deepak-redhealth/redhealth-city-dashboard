@@ -360,7 +360,7 @@ export default function Dashboard() {
                   </button>
 <button onClick={() => window.open('https://actis-dashboard-deepak-redhealths-projects.vercel.app/', '_blank')}
                     className="px-3 py-1.5 bg-purple-500/30 hover:bg-purple-500/50 rounded-lg text-xs font-medium transition">
-                    Actis Dashboard
+                    Business Projection
                   </button>
                   {currentUser.role === 'admin' && (
                     <button onClick={() => router.push('/admin')}
