@@ -34,7 +34,7 @@ export const TARGETS = {
   dqr_pct: 35,
 };
 
-// Compute IST dates for dashboard — MTD till today, compare today vs yesterday
+// Compute IST dates for dashboard — MTD till today, compare FTD vs yesterday (same period)
 export function getDateRange() {
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
@@ -48,11 +48,18 @@ export function getDateRange() {
 
   const fmt = (d) => d.toISOString().split('T')[0];
 
+  // Current IST time as HH:MM:SS — used to cap yesterday's data to same time window
+  const hh = String(istNow.getUTCHours()).padStart(2, '0');
+  const mm = String(istNow.getUTCMinutes()).padStart(2, '0');
+  const ss = String(istNow.getUTCSeconds()).padStart(2, '0');
+  const currentISTTime = `${hh}:${mm}:${ss}`;
+
   return {
     mtdStart: fmt(mtdStart),
     mtdEnd: fmt(today),        // MTD includes today
     today: fmt(today),          // today's snapshot
     yesterday: fmt(yesterday),  // comparison day
+    currentISTTime,             // HH:MM:SS — cap yesterday to same period
     reportDate: today.toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short', year: 'numeric',
     }),
