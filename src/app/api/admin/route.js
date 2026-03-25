@@ -25,7 +25,7 @@ export async function GET(request) {
     if (action === 'users') {
       const rows = await executeQuery(`
         SELECT ID, EMAIL, NAME, ROLE, ACCESS_LEVEL, ALLOWED_ZONES, ALLOWED_CITIES,
-               ALLOWED_ENDPOINTS, IS_ACTIVE, CREATED_AT, UPDATED_AT
+               ALLOWED_ENDPOINTS, ALLOWED_LOBS, IS_ACTIVE, CREATED_AT, UPDATED_AT
         FROM BLADE.CORE.DASHBOARD_USERS ORDER BY ROLE, NAME
       `);
       return NextResponse.json({ users: rows });
@@ -90,18 +90,19 @@ export async function POST(request) {
 
     // --- ADD USER ---
     if (action === 'add-user') {
-      const { email, name, role, accessLevel, allowedZones, allowedCities, allowedEndpoints } = body;
+      const { email, name, role, accessLevel, allowedZones, allowedCities, allowedEndpoints, allowedLobs } = body;
       if (!email || !name || !role) return NextResponse.json({ error: 'email, name, role required' }, { status: 400 });
 
       const zones = allowedZones ? `PARSE_JSON('${JSON.stringify(allowedZones)}')` : 'NULL';
       const cities = allowedCities ? `PARSE_JSON('${JSON.stringify(allowedCities)}')` : 'NULL';
       const endpoints = allowedEndpoints
         ? `PARSE_JSON('${JSON.stringify(allowedEndpoints)}')`
-        : `PARSE_JSON('["funnel","finance","agent","hospital","agent-finance","hospital-finance"]')`;
+        : `PARSE_JSON('["funnel","finance","agent","hospital","agent-finance","hospital-finance","finance-analytics-funnel","finance-analytics-finance","coll-lob","coll-summary","coll-hospital","coll-partner","coll-employee","coll-trend","coll-ageing","coll-b2h","coll-raw"]')`;
+      const lobs = allowedLobs ? `PARSE_JSON('${JSON.stringify(allowedLobs)}')` : 'NULL';
 
       await executeQuery(`
-        INSERT INTO BLADE.CORE.DASHBOARD_USERS (EMAIL, PASSWORD_HASH, NAME, ROLE, ACCESS_LEVEL, ALLOWED_ZONES, ALLOWED_CITIES, ALLOWED_ENDPOINTS)
-        SELECT '${email}', 'CHANGE_ON_FIRST_LOGIN', '${name}', '${role}', '${accessLevel || 'city'}', ${zones}, ${cities}, ${endpoints}
+        INSERT INTO BLADE.CORE.DASHBOARD_USERS (EMAIL, PASSWORD_HASH, NAME, ROLE, ACCESS_LEVEL, ALLOWED_ZONES, ALLOWED_CITIES, ALLOWED_ENDPOINTS, ALLOWED_LOBS)
+        SELECT '${email}', 'CHANGE_ON_FIRST_LOGIN', '${name}', '${role}', '${accessLevel || 'city'}', ${zones}, ${cities}, ${endpoints}, ${lobs}
       `);
       return NextResponse.json({ success: true, message: `User ${email} added` });
     }
@@ -123,7 +124,7 @@ export async function POST(request) {
 
     // --- UPDATE ACCESS ---
     if (action === 'update-access') {
-      const { email, role, accessLevel, allowedZones, allowedCities, allowedEndpoints } = body;
+      const { email, role, accessLevel, allowedZones, allowedCities, allowedEndpoints, allowedLobs } = body;
       if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 });
 
       const sets = [];
@@ -132,6 +133,7 @@ export async function POST(request) {
       if (allowedZones !== undefined) sets.push(`ALLOWED_ZONES = ${allowedZones ? `PARSE_JSON('${JSON.stringify(allowedZones)}')` : 'NULL'}`);
       if (allowedCities !== undefined) sets.push(`ALLOWED_CITIES = ${allowedCities ? `PARSE_JSON('${JSON.stringify(allowedCities)}')` : 'NULL'}`);
       if (allowedEndpoints !== undefined) sets.push(`ALLOWED_ENDPOINTS = ${allowedEndpoints ? `PARSE_JSON('${JSON.stringify(allowedEndpoints)}')` : 'NULL'}`);
+      if (allowedLobs !== undefined) sets.push(`ALLOWED_LOBS = ${allowedLobs ? `PARSE_JSON('${JSON.stringify(allowedLobs)}')` : 'NULL'}`);
       sets.push(`UPDATED_AT = CURRENT_TIMESTAMP()`);
 
       await executeQuery(`UPDATE BLADE.CORE.DASHBOARD_USERS SET ${sets.join(', ')} WHERE LOWER(EMAIL) = LOWER('${email}')`);
