@@ -208,6 +208,7 @@ export function buildCollectionsLOBSummaryQuery(startDate, endDate, dateType, lo
   return `${baseCTE}
 SELECT
   ro.lob as LOB,
+  CASE WHEN ro.META_IS_BILL_TO_PATIENT = TRUE THEN 'B2P' ELSE 'B2H' END as B2H,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
@@ -230,8 +231,8 @@ LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY ro.lob
-ORDER BY ro.lob;
+GROUP BY ro.lob, B2H
+ORDER BY ro.lob, B2H;
   `;
 }
 
@@ -241,6 +242,7 @@ export function buildCollectionsSummaryQuery(startDate, endDate, dateType, lob, 
 SELECT
   ro.city as CITY,
   ro.lob as LOB,
+  CASE WHEN ro.META_IS_BILL_TO_PATIENT = TRUE THEN 'B2P' ELSE 'B2H' END as B2H,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
@@ -263,7 +265,7 @@ LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY ro.city, ro.lob
+GROUP BY ro.city, ro.lob, B2H
 ORDER BY ro.city, ro.lob;
   `;
 }
@@ -275,6 +277,7 @@ SELECT
   ro.city as CITY,
   ro.hospital_name as HOSPITAL_NAME,
   ro.lob as LOB,
+  CASE WHEN ro.META_IS_BILL_TO_PATIENT = TRUE THEN 'B2P' ELSE 'B2H' END as B2H,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
@@ -297,7 +300,7 @@ LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY ro.city, ro.hospital_name, ro.lob
+GROUP BY ro.city, ro.hospital_name, ro.lob, B2H
 ORDER BY ro.city, ro.hospital_name, ro.lob;
   `;
 }
@@ -310,6 +313,7 @@ SELECT
   CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END as PARTNER_NAME,
   ro.provider_type as PROVIDER_TYPE,
   ro.lob as LOB,
+  CASE WHEN ro.META_IS_BILL_TO_PATIENT = TRUE THEN 'B2P' ELSE 'B2H' END as B2H,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
@@ -332,7 +336,7 @@ LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY ro.city, CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END, ro.provider_type, ro.lob
+GROUP BY ro.city, CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END, ro.provider_type, ro.lob, B2H
 ORDER BY ro.city, PARTNER_NAME, ro.lob;
   `;
 }
@@ -352,6 +356,7 @@ SELECT
   COALESCE(ed.status, 'Unknown') as EMPLOYEE_STATUS,
   ro.city as CITY,
   ro.lob as LOB,
+  CASE WHEN ro.META_IS_BILL_TO_PATIENT = TRUE THEN 'B2P' ELSE 'B2H' END as B2H,
   COUNT(DISTINCT ro.ORDER_ID) as TOTAL_ORDERS,
   ROUND(SUM(ro.total_revenue), 0) as TOTAL_REVENUE,
   ROUND(SUM(ro.red_margin), 0) as TOTAL_RED_MARGIN,
@@ -375,7 +380,7 @@ LEFT JOIN bank_period bp ON ro.ORDER_ID = bp.ORDER_ID
 
 LEFT JOIN internal_outstanding io ON ro.ORDER_ID = io.ORDER_ID
 LEFT JOIN external_wallet ew ON ro.ORDER_ID = ew.ORDER_ID
-GROUP BY ed.email, ed.name, ed.user_type, ed.status, ro.created_by_email, ro.city, ro.lob
+GROUP BY ed.email, ed.name, ed.user_type, ed.status, ro.created_by_email, ro.city, ro.lob, B2H
 ORDER BY EMPLOYEE_EMAIL, ro.city, ro.lob;
   `;
 }
@@ -423,7 +428,9 @@ export function buildCollectionsAgeingDetailQuery(startDate, endDate, dateType, 
   const baseCTE = buildBaseCTE(startDate, endDate, dateType, lob, cities);
   return `${baseCTE}
 SELECT
-  ro.city as CITY, ro.hospital_name as HOSPITAL_NAME, ro.lob as LOB, ro.ORDER_ID,
+  ro.city as CITY, ro.hospital_name as HOSPITAL_NAME, ro.lob as LOB,
+  CASE WHEN ro.META_IS_BILL_TO_PATIENT = TRUE THEN 'B2P' ELSE 'B2H' END as B2H,
+  ro.ORDER_ID,
   ro.created_date as CREATED_DATE, ro.fulfilled_date as FULFILLED_DATE, ro.order_status as ORDER_STATUS,
   ro.total_revenue as TOTAL_REVENUE, ro.red_margin as RED_MARGIN,
   COALESCE(ba.bank_amount, 0) as RECEIVED_IN_BANK,
@@ -498,6 +505,7 @@ SELECT
   COALESCE(ed.email, ro.created_by_email, 'Unknown') as AGENT_EMAIL,
   ro.city as CITY, ro.hospital_name as HOSPITAL_NAME,
   CASE WHEN ro.provider_type = 'Own' THEN 'Own Fleet' ELSE ro.partner_name END as PARTNER_NAME,
+  CASE WHEN ro.META_IS_BILL_TO_PATIENT = TRUE THEN 'B2P' ELSE 'B2H' END as B2H,
   ro.ORDER_ID, ro.order_status as ORDER_STATUS, ro.created_date as CREATED_DATE,
   ro.fulfilled_date as FULFILLED_DATE, ro.lob as LOB, ro.provider_type as PROVIDER_TYPE,
   ro.total_revenue as TOTAL_REVENUE, ro.red_margin as RED_MARGIN,
