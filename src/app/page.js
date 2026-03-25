@@ -199,7 +199,7 @@ export default function Dashboard() {
   const cityData = useMemo(() => {
     if (!funnel || !finance) return [];
     const finMap = {};
-    finance.forEach(r => { finMap[r.CITY] = r; });
+    finance.forEach(r => { finMap[`${r.CITY}||${r.LOB}`] = r; });
 
     return funnel
       .filter(f => visibleCities.includes(f.CITY) || f.CITY === 'DIGITAL')
@@ -207,7 +207,7 @@ export default function Dashboard() {
       .filter(f => !filterLob || (f.LOB || '') === filterLob)
       .map(f => ({
         ...f,
-        fin: finMap[f.CITY] || {},
+        fin: finMap[`${f.CITY}||${f.LOB}`] || {},
         cityName: CITY_NAMES[f.CITY] || f.CITY,
         zone: f.CITY === 'DIGITAL' ? 'Digital' : (Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || '\u2014'),
       }));
@@ -218,14 +218,14 @@ export default function Dashboard() {
     if (!hospitals) return [];
     const finMap = {};
     (hospitalFin || []).forEach(r => {
-      const key = `${r.CITY}||${r.HOSPITAL}`;
+      const key = `${r.CITY}||${r.HOSPITAL}||${r.LOB}`;
       finMap[key] = r;
     });
     return hospitals
       .filter(h => visibleCities.includes(h.CITY) || h.CITY === 'DIGITAL')
       .filter(h => selectedCities.length === 0 || selectedCities.includes(h.CITY))
       .filter(h => !filterLob || (h.LOB || '') === filterLob)
-      .map(h => ({ ...h, fin: finMap[`${h.CITY}||${h.HOSPITAL}`] || {} }));
+      .map(h => ({ ...h, fin: finMap[`${h.CITY}||${h.HOSPITAL}||${h.LOB}`] || {} }));
   }, [hospitals, hospitalFin, visibleCities, selectedCities, filterLob]);
 
   // Filtered agent data with finance merge
