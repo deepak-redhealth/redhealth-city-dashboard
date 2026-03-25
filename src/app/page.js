@@ -515,10 +515,10 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Today vs Yesterday Quick Compare */}
+            {/* FTD vs Yesterday (Same Period) Quick Compare */}
             {totals && (
               <div className="bg-white rounded-xl shadow-sm border p-4 mb-6">
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Today vs Yesterday</h3>
+                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">FTD vs Yesterday (Same Period)</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <CompareCell
                     label="Trips Delivered"
@@ -829,24 +829,24 @@ function HospitalSummary({ data }) {
                 <th className="px-3 py-3 text-right bg-blue-50/50">Conv% <span className="text-blue-500">F</span></th>
                 <th className="px-3 py-3 text-right bg-blue-50/50">Comp% <span className="text-blue-500">F</span></th>
                 <th className="px-3 py-3 text-right bg-blue-50/50">Cancel% <span className="text-blue-500">F</span></th>
-                <th className="px-2 py-3 text-right bg-blue-50/30 border-l border-blue-100" title="Today Enquiry">T.Enq</th>
-                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Enq</th>
-                <th className="px-2 py-3 text-right bg-blue-50/30">T.Bkg</th>
-                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Bkg</th>
-                <th className="px-2 py-3 text-right bg-blue-50/30">T.Comp</th>
-                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Comp</th>
-                <th className="px-2 py-3 text-right bg-blue-50/30">T.Rev</th>
-                <th className="px-2 py-3 text-right bg-blue-50/30">Y.Rev</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30 border-l border-blue-100" title="FTD Enquiry">FTD.Enq</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30" title="Yesterday Same Period">YSP.Enq</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">FTD.Bkg</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30" title="Yesterday Same Period">YSP.Bkg</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">FTD.Comp</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30" title="Yesterday Same Period">YSP.Comp</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30">FTD.Rev</th>
+                <th className="px-2 py-3 text-right bg-blue-50/30" title="Yesterday Same Period">YSP.Rev</th>
                 <th className="px-3 py-3 text-right border-l border-green-200 bg-green-50/50">Trips <span className="text-green-600">Fin</span></th>
                 <th className="px-3 py-3 text-right bg-green-50/50">Fin Rev <span className="text-green-600">Fin</span></th>
                 <th className="px-3 py-3 text-right bg-green-50/50">Margin% <span className="text-green-600">Fin</span></th>
                 <th className="px-3 py-3 text-right bg-green-50/50">DQR% <span className="text-green-600">Fin</span></th>
                 <th className="px-3 py-3 text-right bg-green-50/50">Own% <span className="text-green-600">Fin</span></th>
                 <th className="px-3 py-3 text-right bg-green-50/50">Road Rev <span className="text-green-600">Fin</span></th>
-                <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">T.Trips</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">Y.Trips</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">T.FinRev</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</th>
+                <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">FTD.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30" title="Yesterday Same Period">YSP.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">FTD.FinRev</th>
+                <th className="px-2 py-3 text-right bg-green-50/30" title="Yesterday Same Period">YSP.FinRev</th>
                 <th className="px-3 py-3 text-center">Perf</th>
               </tr>
             </thead>
@@ -1049,10 +1049,10 @@ function AgentSummary({ data }) {
                 <th className="px-3 py-3 text-right bg-green-50/50">DQR% <span className="text-green-600">Fin</span></th>
                 <th className="px-3 py-3 text-right bg-green-50/50">Own% <span className="text-green-600">Fin</span></th>
                 <th className="px-3 py-3 text-right bg-green-50/50">Road Rev <span className="text-green-600">Fin</span></th>
-                <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">T.Trips</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">Y.Trips</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">T.FinRev</th>
-                <th className="px-2 py-3 text-right bg-green-50/30">Y.FinRev</th>
+                <th className="px-2 py-3 text-right bg-green-50/30 border-l border-green-100">FTD.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30" title="Yesterday Same Period">YSP.Trips</th>
+                <th className="px-2 py-3 text-right bg-green-50/30">FTD.FinRev</th>
+                <th className="px-2 py-3 text-right bg-green-50/30" title="Yesterday Same Period">YSP.FinRev</th>
                 <th className="px-3 py-3 text-center">Perf</th>
               </tr>
             </thead>
