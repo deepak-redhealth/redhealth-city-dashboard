@@ -266,7 +266,7 @@ export default function CollectionsPage() {
     if (data.length === 0) return {};
     const keys = Object.keys(data[0]);
     const map = {};
-    ['CITY', 'HOSPITAL_NAME', 'LOB', 'PROVIDER_TYPE', 'ORDER_STATUS', 'PARTNER_NAME', 'AGENT_EMAIL', 'EMPLOYEE_EMAIL', 'META_IS_BILL_TO_PATIENT'].forEach(t => {
+    ['CITY', 'HOSPITAL_NAME', 'LOB', 'PROVIDER_TYPE', 'ORDER_STATUS', 'PARTNER_NAME', 'AGENT_EMAIL', 'EMPLOYEE_EMAIL', 'B2H'].forEach(t => {
       map[t] = keys.find(k => k.toUpperCase() === t) || null;
     });
     return map;
@@ -289,12 +289,6 @@ export default function CollectionsPage() {
   const rowMatchesFilter = (row, filterKey) => {
     const f = allFilters[filterKey];
     if (!f.val) return true;
-    if (filterKey === 'b2h') {
-      const k = colKeyMap['META_IS_BILL_TO_PATIENT'];
-      if (!k) return true;
-      const isB2P = row[k] === true || row[k] === 'true' || row[k] === 1;
-      return f.val === 'B2P' ? isB2P : !isB2P;
-    }
     if (filterKey === 'agentEmail') {
       const k = colKeyMap['AGENT_EMAIL'] || colKeyMap['EMPLOYEE_EMAIL'];
       if (!k) return true;
