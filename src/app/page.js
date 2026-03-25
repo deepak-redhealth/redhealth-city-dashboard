@@ -63,7 +63,7 @@ function getISTYesterday() {
 export default function Dashboard() {
   const router = useRouter();
   const [zone, setZone] = useState('All');
-  const [filterLob, setFilterLob] = useState('');
+  const [selectedLobs, setSelectedLobs] = useState([]);
   const [selectedCities, setSelectedCities] = useState([]);
   const [activeTab, setActiveTab] = useState('city'); // city | hospital | agent
   const [funnel, setFunnel] = useState(null);
@@ -204,14 +204,14 @@ export default function Dashboard() {
     return funnel
       .filter(f => visibleCities.includes(f.CITY) || f.CITY === 'DIGITAL')
       .filter(f => selectedCities.length === 0 || selectedCities.includes(f.CITY))
-      .filter(f => !filterLob || (f.LOB || '') === filterLob)
+      .filter(f => selectedLobs.length === 0 || selectedLobs.includes(f.LOB || ''))
       .map(f => ({
         ...f,
         fin: finMap[`${f.CITY}||${f.LOB}`] || {},
         cityName: CITY_NAMES[f.CITY] || f.CITY,
         zone: f.CITY === 'DIGITAL' ? 'Digital' : (Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || '\u2014'),
       }));
-  }, [funnel, finance, visibleCities, selectedCities, filterLob]);
+  }, [funnel, finance, visibleCities, selectedCities, selectedLobs]);
 
   // Filtered hospital data with finance merge
   const hospitalData = useMemo(() => {
@@ -224,9 +224,9 @@ export default function Dashboard() {
     return hospitals
       .filter(h => visibleCities.includes(h.CITY) || h.CITY === 'DIGITAL')
       .filter(h => selectedCities.length === 0 || selectedCities.includes(h.CITY))
-      .filter(h => !filterLob || (h.LOB || '') === filterLob)
+      .filter(h => selectedLobs.length === 0 || selectedLobs.includes(h.LOB || ''))
       .map(h => ({ ...h, fin: finMap[`${h.CITY}||${h.HOSPITAL}||${h.LOB}`] || {} }));
-  }, [hospitals, hospitalFin, visibleCities, selectedCities, filterLob]);
+  }, [hospitals, hospitalFin, visibleCities, selectedCities, selectedLobs]);
 
   // Filtered agent data with finance merge
   const agentData = useMemo(() => {
@@ -239,9 +239,9 @@ export default function Dashboard() {
     return agents
       .filter(a => visibleCities.includes(a.CITY) || a.CITY === 'DIGITAL')
       .filter(a => selectedCities.length === 0 || selectedCities.includes(a.CITY))
-      .filter(a => !filterLob || (a.LOB || '') === filterLob)
+      .filter(a => selectedLobs.length === 0 || selectedLobs.includes(a.LOB || ''))
       .map(a => ({ ...a, fin: finMap[`${a.CITY}||${a.AGENT}||${a.LOB}`] || {} }));
-  }, [agents, agentFin, visibleCities, selectedCities, filterLob]);
+  }, [agents, agentFin, visibleCities, selectedCities, selectedLobs]);
 
   // Aggregated totals
   const totals = useMemo(() => {
@@ -394,7 +394,7 @@ export default function Dashboard() {
               <>
                 <span>|</span>
                 <span className="px-2 py-0.5 bg-yellow-400/30 rounded font-semibold text-white">
-                  {currentUser.name} \u2014 {currentUser.role.toUpperCase()} ({currentUser.allowedCities ? currentUser.allowedCities.length + ' cities' : 'All'})
+                  {currentUser.name} &mdash; {currentUser.role.toUpperCase()} ({currentUser.allowedCities ? currentUser.allowedCities.length + ' cities' : 'All'})
                 </span>
               </>
             )}
@@ -424,14 +424,23 @@ export default function Dashboard() {
             <div className="border-l pl-4">
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">LOB</label>
               <div className="flex gap-2 mt-1">
-                {['', 'Hospital', 'Stan Command', 'Digital'].map(lob => (
+                <button
+                  onClick={() => setSelectedLobs([])}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition
+                    ${selectedLobs.length === 0 ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  All
+                </button>
+                {['Hospital', 'Stan Command', 'Digital'].map(lob => (
                   <button
                     key={lob}
-                    onClick={() => setFilterLob(lob)}
+                    onClick={() => setSelectedLobs(prev =>
+                      prev.includes(lob) ? prev.filter(l => l !== lob) : [...prev, lob]
+                    )}
                     className={`px-3 py-1.5 rounded-full text-sm font-medium transition
-                      ${filterLob === lob ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      ${selectedLobs.includes(lob) ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                   >
-                    {lob || 'All'}
+                    {lob}
                   </button>
                 ))}
               </div>
