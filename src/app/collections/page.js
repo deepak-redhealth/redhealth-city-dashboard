@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function CollectionsPage() {
@@ -261,18 +261,20 @@ export default function CollectionsPage() {
     return Object.entries(riskCounts).map(([tag, count]) => ({ tag, count }));
   };
 
-  // ── Pre-compute column key lookups once when data changes (avoids repeated Object.keys().find() per row) ──
-  const colKeyMap = useMemo(() => {
+  // ── Pre-compute column key lookups (avoids Object.keys().find() per row per filter) ──
+  const _buildColKeyMap = () => {
     if (data.length === 0) return {};
     const keys = Object.keys(data[0]);
     const map = {};
-    const targets = ['CITY', 'HOSPITAL_NAME', 'LOB', 'PROVIDER_TYPE', 'ORDER_STATUS', 'PARTNER_NAME', 'AGENT_EMAIL', 'EMPLOYEE_EMAIL', 'META_IS_BILL_TO_PATIENT'];
-    targets.forEach(t => { map[t] = keys.find(k => k.toUpperCase() === t) || null; });
+    ['CITY', 'HOSPITAL_NAME', 'LOB', 'PROVIDER_TYPE', 'ORDER_STATUS', 'PARTNER_NAME', 'AGENT_EMAIL', 'EMPLOYEE_EMAIL', 'META_IS_BILL_TO_PATIENT'].forEach(t => {
+      map[t] = keys.find(k => k.toUpperCase() === t) || null;
+    });
     return map;
-  }, [data]);
+  };
+  const colKeyMap = _buildColKeyMap();
 
-  // All active filters as a map
-  const allFilters = useMemo(() => ({
+  // All active filters
+  const allFilters = {
     city: { col: 'CITY', val: filterCity },
     hospital: { col: 'HOSPITAL_NAME', val: filterHospital },
     lob: { col: 'LOB', val: filterLob },
@@ -281,10 +283,10 @@ export default function CollectionsPage() {
     partnerName: { col: 'PARTNER_NAME', val: filterPartnerName },
     agentEmail: { col: 'AGENT_EMAIL', val: filterAgentEmail },
     b2h: { col: 'B2H', val: filterB2H },
-  }), [filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H]);
+  };
 
   // Fast row matcher using pre-computed column keys
-  const rowMatchesFilter = useCallback((row, filterKey) => {
+  const rowMatchesFilter = (row, filterKey) => {
     const f = allFilters[filterKey];
     if (!f.val) return true;
     if (filterKey === 'b2h') {
@@ -301,10 +303,10 @@ export default function CollectionsPage() {
     const k = colKeyMap[f.col];
     if (!k) return true;
     return String(row[k]).trim() === f.val;
-  }, [allFilters, colKeyMap]);
+  };
 
-  // Helper: filter data applying ALL filters EXCEPT the excluded one
-  const filterDataExcluding = useCallback((excludeKey) => {
+  // Filter data applying ALL filters EXCEPT the excluded one (for cascading dropdowns)
+  const filterDataExcluding = (excludeKey) => {
     const filterKeys = Object.keys(allFilters);
     return data.filter(row => {
       for (const fk of filterKeys) {
@@ -314,10 +316,10 @@ export default function CollectionsPage() {
       if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
       return true;
     });
-  }, [data, allFilters, rowMatchesFilter, activeTab, ageingFilter]);
+  };
 
-  // Get unique values for a column from a dataset (uses pre-computed key map)
-  const uniqueVals = useCallback((dataset, colKey) => {
+  // Get unique sorted values using pre-computed key map
+  const uniqueVals = (dataset, colKey) => {
     const key = colKeyMap[colKey];
     if (!key) return [];
     const vals = new Set();
@@ -326,39 +328,27 @@ export default function CollectionsPage() {
       if (v !== null && v !== undefined && String(v).trim() !== '') vals.add(String(v).trim());
     }
     return [...vals].sort();
-  }, [colKeyMap]);
+  };
 
-  // ── Memoized interconnected filter options ──
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const optionsCity = useMemo(() => uniqueVals(filterDataExcluding('city'), 'CITY'), [data, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const optionsHospital = useMemo(() => uniqueVals(filterDataExcluding('hospital'), 'HOSPITAL_NAME'), [data, filterCity, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const optionsLob = useMemo(() => uniqueVals(filterDataExcluding('lob'), 'LOB'), [data, filterCity, filterHospital, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const optionsProviderType = useMemo(() => uniqueVals(filterDataExcluding('providerType'), 'PROVIDER_TYPE'), [data, filterCity, filterHospital, filterLob, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const optionsOrderStatus = useMemo(() => uniqueVals(filterDataExcluding('orderStatus'), 'ORDER_STATUS'), [data, filterCity, filterHospital, filterLob, filterProviderType, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const optionsPartnerName = useMemo(() => uniqueVals(filterDataExcluding('partnerName'), 'PARTNER_NAME'), [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const optionsAgentEmail = useMemo(() => {
-    const ae = uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL');
-    return ae.length > 0 ? ae : uniqueVals(filterDataExcluding('agentEmail'), 'EMPLOYEE_EMAIL');
-  }, [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterB2H, activeTab, ageingFilter]);
+  // Interconnected options
+  const optionsCity = uniqueVals(filterDataExcluding('city'), 'CITY');
+  const optionsHospital = uniqueVals(filterDataExcluding('hospital'), 'HOSPITAL_NAME');
+  const optionsLob = uniqueVals(filterDataExcluding('lob'), 'LOB');
+  const optionsProviderType = uniqueVals(filterDataExcluding('providerType'), 'PROVIDER_TYPE');
+  const optionsOrderStatus = uniqueVals(filterDataExcluding('orderStatus'), 'ORDER_STATUS');
+  const optionsPartnerName = uniqueVals(filterDataExcluding('partnerName'), 'PARTNER_NAME');
+  const optionsAgentEmail = uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL').length > 0
+    ? uniqueVals(filterDataExcluding('agentEmail'), 'AGENT_EMAIL')
+    : uniqueVals(filterDataExcluding('agentEmail'), 'EMPLOYEE_EMAIL');
 
-  // ── Memoized final filtered data ──
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const filteredData = useMemo(() => {
-    const filterKeys = Object.keys(allFilters);
-    return data.filter(row => {
-      for (const fk of filterKeys) {
-        if (!rowMatchesFilter(row, fk)) return false;
-      }
-      if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
-      return true;
-    });
-  }, [data, filterCity, filterHospital, filterLob, filterProviderType, filterOrderStatus, filterPartnerName, filterAgentEmail, filterB2H, activeTab, ageingFilter]);
+  // Final filtered data (all filters applied)
+  const filteredData = data.filter(row => {
+    for (const fk of Object.keys(allFilters)) {
+      if (!rowMatchesFilter(row, fk)) return false;
+    }
+    if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
+    return true;
+  });
 
   const cols = getCols();
 
@@ -541,9 +531,9 @@ export default function CollectionsPage() {
         </div>
 
         {/* KPI Cards */}
-        {(() => { const kpis = getKpiCards(); return kpis.length > 0 ? (
+        {getKpiCards().length > 0 && (
           <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-            {kpis.map((kpi, idx) => (
+            {getKpiCards().map((kpi, idx) => (
               <div
                 key={idx}
                 style={{
@@ -560,7 +550,7 @@ export default function CollectionsPage() {
               </div>
             ))}
           </div>
-        ) : null; })()}
+        )}
 
         {/* Sub-tabs */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, borderBottom: '1px solid #e5e7eb', overflowX: 'auto' }}>
