@@ -20,7 +20,7 @@ export default function AdminPage() {
   const [newAccess, setNewAccess] = useState('city');
   const [newCities, setNewCities] = useState('');
   const [newZones, setNewZones] = useState('');
-  const [newEndpoints, setNewEndpoints] = useState('funnel,finance,agent,hospital,agent-finance,hospital-finance,finance-analytics-funnel,finance-analytics-finance,coll-lob,coll-summary,coll-hospital,coll-partner,coll-employee,coll-trend,coll-ageing,coll-b2h,coll-raw');
+  const [newEndpoints, setNewEndpoints] = useState('funnel,finance,agent,hospital,agent-finance,hospital-finance,finance-analytics-funnel,finance-analytics-finance,coll-lob,coll-summary,coll-hospital,coll-partner,coll-employee,coll-trend,coll-ageing,coll-b2h,coll-raw,business-projection');
   const [newLobs, setNewLobs] = useState('');
 
   // Edit user state
@@ -31,10 +31,12 @@ export default function AdminPage() {
   const [editZones, setEditZones] = useState('');
   const [editDashboard, setEditDashboard] = useState(true);
   const [editCollections, setEditCollections] = useState(true);
+  const [editBusinessProjection, setEditBusinessProjection] = useState(false);
   const [editLobs, setEditLobs] = useState([]);
 
   const DASHBOARD_ENDPOINTS = ['funnel','finance','agent','hospital','agent-finance','hospital-finance','finance-analytics-funnel','finance-analytics-finance'];
   const COLLECTION_ENDPOINTS = ['coll-lob','coll-summary','coll-hospital','coll-partner','coll-employee','coll-trend','coll-ageing','coll-b2h','coll-raw'];
+  const BUSINESS_PROJECTION_ENDPOINTS = ['business-projection'];
   const ALL_LOBS = ['Hospital', 'Stan Command', 'Digital'];
 
   function startEdit(u) {
@@ -49,6 +51,7 @@ export default function AdminPage() {
     setEditZones(zones ? zones.join(', ') : '');
     setEditDashboard(DASHBOARD_ENDPOINTS.some(e => eps.includes(e)));
     setEditCollections(COLLECTION_ENDPOINTS.some(e => eps.includes(e)));
+    setEditBusinessProjection(BUSINESS_PROJECTION_ENDPOINTS.some(e => eps.includes(e)));
     setEditLobs(lobs.length > 0 ? [...lobs] : []);
   }
 
@@ -56,6 +59,7 @@ export default function AdminPage() {
     const endpoints = [
       ...(editDashboard ? DASHBOARD_ENDPOINTS : []),
       ...(editCollections ? COLLECTION_ENDPOINTS : []),
+      ...(editBusinessProjection ? BUSINESS_PROJECTION_ENDPOINTS : []),
     ];
     const body = {
       email: editEmail,
@@ -202,6 +206,7 @@ export default function AdminPage() {
                       const lobs = u.ALLOWED_LOBS ? (typeof u.ALLOWED_LOBS === 'string' ? JSON.parse(u.ALLOWED_LOBS) : u.ALLOWED_LOBS) : [];
                       const hasDash = DASHBOARD_ENDPOINTS.some(e => eps.includes(e));
                       const hasColl = COLLECTION_ENDPOINTS.some(e => eps.includes(e));
+                      const hasBizP = BUSINESS_PROJECTION_ENDPOINTS.some(e => eps.includes(e));
                       const isEditing = editEmail === u.EMAIL;
                       return (
                         <tr key={u.EMAIL} className={`${!u.IS_ACTIVE ? 'bg-red-50 opacity-60' : ''} ${isEditing ? 'bg-blue-50' : ''}`}>
@@ -259,6 +264,10 @@ export default function AdminPage() {
                                         <input type="checkbox" checked={editCollections} onChange={e => setEditCollections(e.target.checked)}
                                           className="rounded border-gray-300" /> Finance Analytics
                                       </label>
+                                      <label className="flex items-center gap-1.5 text-sm">
+                                        <input type="checkbox" checked={editBusinessProjection} onChange={e => setEditBusinessProjection(e.target.checked)}
+                                          className="rounded border-gray-300" /> Business Projection
+                                      </label>
                                     </div>
                                   </div>
                                   <div>
@@ -304,6 +313,7 @@ export default function AdminPage() {
                                 <div className="flex gap-1">
                                   {hasDash && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-medium">Dash</span>}
                                   {hasColl && <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-medium">Fin</span>}
+                                  {hasBizP && <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-medium">BizP</span>}
                                 </div>
                               </td>
                               <td className="px-3 py-3">
@@ -432,7 +442,7 @@ export default function AdminPage() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Allowed Endpoints</label>
                     <input value={newEndpoints} onChange={e => setNewEndpoints(e.target.value)}
                       className="w-full px-3 py-2 border rounded-lg text-sm" />
-                    <p className="text-xs text-gray-400 mt-1">Dashboard + Finance Analytics endpoints (auto-filled for all access)</p>
+                    <p className="text-xs text-gray-400 mt-1">Dashboard + Finance Analytics + Business Projection endpoints (auto-filled for all access)</p>
                   </div>
                   <button type="submit" className="px-6 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
                     Add User
