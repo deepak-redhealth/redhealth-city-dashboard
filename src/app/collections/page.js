@@ -341,6 +341,12 @@ export default function CollectionsPage() {
       if (!rowMatchesFilter(row, fk)) return false;
     }
     if (activeTab === 'ageing' && ageingFilter && row.RISK_TAG !== ageingFilter) return false;
+    // Employee active/inactive filter
+    if (activeTab === 'employee' && empStatus !== 'All') {
+      const status = String(row.EMPLOYEE_STATUS || '').toUpperCase();
+      if (empStatus === 'Active Only' && status !== 'ACTIVE') return false;
+      if (empStatus === 'Inactive Only' && (status === 'ACTIVE' || status === '')) return false;
+    }
     return true;
   });
 
