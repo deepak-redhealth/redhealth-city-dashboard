@@ -7,7 +7,7 @@ import { ZONE_CITY_MAP, CITY_NAMES, TARGETS } from '@/lib/constants';
 // --- Helpers ---
 const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : '\u2014';
 const fmtL = (n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014';
-const fmtR = (n) => n != null ? '\u20B9' + (Number(n)/100000).toFixed(2) + 'L' : '\u2014';
+const fmtR = (n) => n != null ? '\u20B9' + fmt(n) : '\u2014';
 const pct = (n) => n != null ? Number(n).toFixed(1) + '%' : '\u2014';
 const arrow = (curr, prev) => {
   if (curr == null || prev == null) return { icon: '\u2192', color: 'text-gray-400' };
@@ -63,6 +63,7 @@ function getISTYesterday() {
 export default function Dashboard() {
   const router = useRouter();
   const [zone, setZone] = useState('All');
+  const [filterLob, setFilterLob] = useState('');
   const [selectedCities, setSelectedCities] = useState([]);
   const [activeTab, setActiveTab] = useState('city'); // city | hospital | agent
   const [funnel, setFunnel] = useState(null);
@@ -201,15 +202,16 @@ export default function Dashboard() {
     finance.forEach(r => { finMap[r.CITY] = r; });
 
     return funnel
-      .filter(f => visibleCities.includes(f.CITY))
+      .filter(f => visibleCities.includes(f.CITY) || f.CITY === 'DIGITAL')
       .filter(f => selectedCities.length === 0 || selectedCities.includes(f.CITY))
+      .filter(f => !filterLob || (f.LOB || '') === filterLob)
       .map(f => ({
         ...f,
         fin: finMap[f.CITY] || {},
         cityName: CITY_NAMES[f.CITY] || f.CITY,
-        zone: Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || '\u2014',
+        zone: f.CITY === 'DIGITAL' ? 'Digital' : (Object.entries(ZONE_CITY_MAP).find(([, cities]) => cities.includes(f.CITY))?.[0] || '\u2014'),
       }));
-  }, [funnel, finance, visibleCities, selectedCities]);
+  }, [funnel, finance, visibleCities, selectedCities, filterLob]);
 
   // Filtered hospital data with finance merge
   const hospitalData = useMemo(() => {
@@ -220,10 +222,11 @@ export default function Dashboard() {
       finMap[key] = r;
     });
     return hospitals
-      .filter(h => visibleCities.includes(h.CITY))
+      .filter(h => visibleCities.includes(h.CITY) || h.CITY === 'DIGITAL')
       .filter(h => selectedCities.length === 0 || selectedCities.includes(h.CITY))
+      .filter(h => !filterLob || (h.LOB || '') === filterLob)
       .map(h => ({ ...h, fin: finMap[`${h.CITY}||${h.HOSPITAL}`] || {} }));
-  }, [hospitals, hospitalFin, visibleCities, selectedCities]);
+  }, [hospitals, hospitalFin, visibleCities, selectedCities, filterLob]);
 
   // Filtered agent data with finance merge
   const agentData = useMemo(() => {
@@ -234,10 +237,11 @@ export default function Dashboard() {
       finMap[key] = r;
     });
     return agents
-      .filter(a => visibleCities.includes(a.CITY))
+      .filter(a => visibleCities.includes(a.CITY) || a.CITY === 'DIGITAL')
       .filter(a => selectedCities.length === 0 || selectedCities.includes(a.CITY))
+      .filter(a => !filterLob || (a.LOB || '') === filterLob)
       .map(a => ({ ...a, fin: finMap[`${a.CITY}||${a.AGENT}||${a.LOB}`] || {} }));
-  }, [agents, agentFin, visibleCities, selectedCities]);
+  }, [agents, agentFin, visibleCities, selectedCities, filterLob]);
 
   // Aggregated totals
   const totals = useMemo(() => {
@@ -259,8 +263,6 @@ export default function Dashboard() {
       ownRoadPct: totalRoadRev > 0 ? (totalOwnRoad / totalRoadRev * 100).toFixed(1) : null,
       todayTrips: sumFin('TODAY_TRIPS'), todayRev: sumFin('TODAY_REV'),
       ydayTrips: sumFin('YDAY_TRIPS'), ydayRev: sumFin('YDAY_REV'),
-      todayTripsFun: sum('TODAY_TRIP_COMP'), todayRevFun: sum('TODAY_REV_BKD_L'),
-      ydayTripsFun: sum('YDAY_TRIP_COMP'), ydayRevFun: sum('YDAY_REV_BKD_L'),
     };
   }, [cityData]);
 
@@ -351,17 +353,16 @@ export default function Dashboard() {
                   <span className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-medium">
                     {currentUser.name} ({currentUser.role.toUpperCase()})
                   </span>
-{currentUser.role === 'admin' && (
+                  <button onClick={() => router.push('/finance')}
+                    className="px-3 py-1.5 bg-green-500/30 hover:bg-green-500/50 rounded-lg text-xs font-medium transition">
+                    Finance Analytics
+                  </button>
+                  {currentUser.role === 'admin' && (
                     <button onClick={() => router.push('/admin')}
                       className="px-3 py-1.5 bg-yellow-500/30 hover:bg-yellow-500/50 rounded-lg text-xs font-medium transition">
                       Admin
                     </button>
                   )}
-                  <button onClick={() => router.push('/collections')}
-                    style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '6px 16px',
-                      borderRadius: 4, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                    Collections
-                  </button>
                   <button onClick={() => {
                     fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ action: 'logout', token: sessionToken }) });
@@ -393,7 +394,7 @@ export default function Dashboard() {
               <>
                 <span>|</span>
                 <span className="px-2 py-0.5 bg-yellow-400/30 rounded font-semibold text-white">
-                  {currentUser.name} {"\u2014"} {currentUser.role.toUpperCase()} ({currentUser.allowedCities ? currentUser.allowedCities.length + ' cities' : 'All'})
+                  {currentUser.name} \u2014 {currentUser.role.toUpperCase()} ({currentUser.allowedCities ? currentUser.allowedCities.length + ' cities' : 'All'})
                 </span>
               </>
             )}
@@ -416,6 +417,21 @@ export default function Dashboard() {
                       ${zone === z ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                   >
                     {z}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="border-l pl-4">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">LOB</label>
+              <div className="flex gap-2 mt-1">
+                {['', 'Hospital', 'Stan Command', 'Digital'].map(lob => (
+                  <button
+                    key={lob}
+                    onClick={() => setFilterLob(lob)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition
+                      ${filterLob === lob ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    {lob || 'All'}
                   </button>
                 ))}
               </div>
@@ -510,17 +526,9 @@ export default function Dashboard() {
                     label="Cancel %"
                     curr={totals.revL > 0 ? (totals.canL / totals.revL * 100).toFixed(1) : null}
                     prev={null}
-                    formatter={pct} single />
-                  <CompareCell
-                    label="Trips Delivered"
-                    curr={totals.todayTripsFun} prev={totals.ydayTripsFun}
-                    source="Fun"
-                  />
-                  <CompareCell
-                    label="Revenue"
-                    curr={totals.todayRevFun} prev={totals.ydayRevFun}
-                    fmt={(n) => n != null ? '\u20B9' + Number(n).toFixed(2) + 'L' : '\u2014'}
-                    source="Fun"
+                    formatter={pct} single
+                    color={statusColor(totals.revL > 0 ? (totals.canL / totals.revL * 100) : null, 12, false)}
+                    source="F"
                   />
                 </div>
               </div>
@@ -563,7 +571,6 @@ export default function Dashboard() {
             {activeTab === 'agent' && (
               <AgentSummary data={agentData} />
             )}
-
           </>
         )}
       </main>
