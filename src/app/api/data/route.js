@@ -16,7 +16,30 @@ import {
 import { getDateRange } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
+
+// ── In-memory cache (survives across requests within the same serverless instance) ──
+const queryCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCachedOrNull(key) {
+  const entry = queryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    queryCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key, data) {
+  // Evict old entries if cache grows too large (prevent memory leak)
+  if (queryCache.size > 200) {
+    const oldest = [...queryCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    for (let i = 0; i < 50; i++) queryCache.delete(oldest[i][0]);
+  }
+  queryCache.set(key, { data, ts: Date.now() });
+}
 
 // Single proxy endpoint: /api/data?type=funnel|finance|...|coll-lob|coll-summary|...
 export async function GET(request) {
@@ -122,7 +145,13 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Query builder not available for this type' }, { status: 400 });
     }
 
-    let rows = await executeQuery(sql);
+    // Check cache first (keyed by query type + params)
+    const cacheKey = `${type}|${startDate}|${endDate}|${dateType}|${lob}|${cityString}`;
+    let rows = getCachedOrNull(cacheKey);
+    if (!rows) {
+      rows = await executeQuery(sql);
+      setCache(cacheKey, rows);
+    }
 
     // Filter by user's allowed cities (server-side enforcement)
     // Skip for collection queries — they already handle city filtering in SQL
