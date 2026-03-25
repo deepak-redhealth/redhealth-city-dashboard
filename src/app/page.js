@@ -358,10 +358,12 @@ export default function Dashboard() {
                     className="px-3 py-1.5 bg-green-500/30 hover:bg-green-500/50 rounded-lg text-xs font-medium transition">
                     Finance Analytics
                   </button>
-<button onClick={() => window.open('https://actis-dashboard-deepak-redhealths-projects.vercel.app/', '_blank')}
-                    className="px-3 py-1.5 bg-purple-500/30 hover:bg-purple-500/50 rounded-lg text-xs font-medium transition">
-                    Business Projection
-                  </button>
+                  {(!currentUser.allowedEndpoints || currentUser.allowedEndpoints.includes('business-projection')) && (
+                    <button onClick={() => window.open('https://actis-dashboard-deepak-redhealths-projects.vercel.app/', '_blank')}
+                      className="px-3 py-1.5 bg-purple-500/30 hover:bg-purple-500/50 rounded-lg text-xs font-medium transition">
+                      Business Projection
+                    </button>
+                  )}
                   {currentUser.role === 'admin' && (
                     <button onClick={() => router.push('/admin')}
                       className="px-3 py-1.5 bg-yellow-500/30 hover:bg-yellow-500/50 rounded-lg text-xs font-medium transition">
