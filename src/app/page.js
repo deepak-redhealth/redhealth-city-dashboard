@@ -255,6 +255,13 @@ export default function Dashboard() {
     const totalDqr = sumFin('MTD_DQR');
     const totalOwnRoad = sumFin('MTD_OWN_ROAD_REV');
     const totalRoadRev = sumFin('MTD_ROAD_REV');
+    // Funnel-based performance aggregates
+    const fNonOwnRev = sum('MTD_F_NON_OWN_REV');
+    const fMarginAmt = sum('MTD_F_MARGIN_AMT');
+    const fDqr = sum('MTD_F_DQR');
+    const fDqrDenom = sum('MTD_F_DQR_DENOM');
+    const fOwnRoad = sum('MTD_F_OWN_ROAD_REV');
+    const fRoadRev = sum('MTD_F_ROAD_REV');
     return {
       enquiry: sum('MTD_ENQUIRY'), booking: sum('MTD_BOOKING'),
       tripComp: sum('MTD_TRIP_COMP'), revL: sum('MTD_REV_BKD_L'), canL: sum('MTD_REV_CAN_L'),
@@ -262,6 +269,11 @@ export default function Dashboard() {
       marginPct: totalNonOwnRev > 0 ? (totalMarginAmt / totalNonOwnRev * 100).toFixed(1) : null,
       dqrPct: totalRev > 0 ? (totalDqr / totalRev * 100).toFixed(1) : null,
       ownRoadPct: totalRoadRev > 0 ? (totalOwnRoad / totalRoadRev * 100).toFixed(1) : null,
+      // Funnel-based performance metrics
+      fMarginPct: fNonOwnRev > 0 ? (fMarginAmt / fNonOwnRev * 100).toFixed(1) : null,
+      fDqrPct: fDqrDenom > 0 ? (fDqr / fDqrDenom * 100).toFixed(1) : null,
+      fOwnRoadPct: fRoadRev > 0 ? (fOwnRoad / fRoadRev * 100).toFixed(1) : null,
+      fRoadRev: fRoadRev,
       todayTrips: sumFin('TODAY_TRIPS'), todayRev: sumFin('TODAY_REV'),
       ydayTrips: sumFin('YDAY_TRIPS'), ydayRev: sumFin('YDAY_REV'),
     };
@@ -495,31 +507,58 @@ export default function Dashboard() {
           <>
             {/* Aggregate Summary Cards */}
             {totals && (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
-                <SummaryCard label="MTD Bookings" value={fmt(totals.booking)} source="F" />
-                <SummaryCard label="MTD Completed" value={fmt(totals.tripComp)} source="F" />
-                <SummaryCard label="Revenue (Booked)" value={fmtL(totals.revL)} source="F" />
-                <SummaryCard label="Finance Revenue" value={fmtRL(totals.finRev)} source="Fin" />
-                <SummaryCard
-                  label="Margin %"
-                  value={pct(totals.marginPct)}
-                  color={statusColor(totals.marginPct, TARGETS.margin_pct)}
-                  source="Fin"
-                />
-                <SummaryCard
-                  label="Own Vehicle %"
-                  value={pct(totals.ownRoadPct)}
-                  color={statusColor(totals.ownRoadPct, TARGETS.own_vehicle_pct)}
-                  source="Fin"
-                />
-              </div>
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
+                  <SummaryCard label="MTD Bookings" value={fmt(totals.booking)} source="F" />
+                  <SummaryCard label="MTD Completed" value={fmt(totals.tripComp)} source="F" />
+                  <SummaryCard label="Revenue (Booked)" value={fmtL(totals.revL)} source="F" />
+                  <SummaryCard label="Finance Revenue" value={fmtRL(totals.finRev)} source="Fin" />
+                  <SummaryCard
+                    label="Margin %"
+                    value={pct(totals.marginPct)}
+                    color={statusColor(totals.marginPct, TARGETS.margin_pct)}
+                    source="Fin"
+                  />
+                  <SummaryCard
+                    label="Own Vehicle %"
+                    value={pct(totals.ownRoadPct)}
+                    color={statusColor(totals.ownRoadPct, TARGETS.own_vehicle_pct)}
+                    source="Fin"
+                  />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  <SummaryCard
+                    label="Margin %"
+                    value={pct(totals.fMarginPct)}
+                    color={statusColor(totals.fMarginPct, TARGETS.margin_pct)}
+                    source="F"
+                  />
+                  <SummaryCard
+                    label="DQR %"
+                    value={pct(totals.fDqrPct)}
+                    color={statusColor(totals.fDqrPct, TARGETS.dqr_pct)}
+                    source="F"
+                  />
+                  <SummaryCard
+                    label="Own Vehicle %"
+                    value={pct(totals.fOwnRoadPct)}
+                    color={statusColor(totals.fOwnRoadPct, TARGETS.own_vehicle_pct)}
+                    source="F"
+                  />
+                  <SummaryCard
+                    label="Road Revenue"
+                    value={fmtRL(totals.fRoadRev)}
+                    source="F"
+                  />
+                </div>
+              </>
             )}
 
             {/* FTD vs Yesterday (Same Period) Quick Compare */}
             {totals && (
               <div className="bg-white rounded-xl shadow-sm border p-4 mb-6">
                 <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">FTD vs Yesterday (Same Period)</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   <CompareCell
                     label="Trips Delivered"
                     curr={totals.todayTrips} prev={totals.ydayTrips}
@@ -539,11 +578,24 @@ export default function Dashboard() {
                     source="Fin"
                   />
                   <CompareCell
+                    label="DQR %"
+                    curr={totals.fDqrPct} prev={null}
+                    formatter={pct} single
+                    color={statusColor(totals.fDqrPct, TARGETS.dqr_pct)}
+                    source="F"
+                  />
+                  <CompareCell
                     label="Cancel %"
                     curr={totals.revL > 0 ? (totals.canL / totals.revL * 100).toFixed(1) : null}
                     prev={null}
                     formatter={pct} single
                     color={statusColor(totals.revL > 0 ? (totals.canL / totals.revL * 100) : null, 12, false)}
+                    source="F"
+                  />
+                  <CompareCell
+                    label="Road Rev"
+                    curr={totals.fRoadRev} prev={null}
+                    formatter={fmtRL} single
                     source="F"
                   />
                 </div>
@@ -829,6 +881,10 @@ function HospitalSummary({ data }) {
                 <th className="px-3 py-3 text-right bg-blue-50/50">Conv% <span className="text-blue-500">F</span></th>
                 <th className="px-3 py-3 text-right bg-blue-50/50">Comp% <span className="text-blue-500">F</span></th>
                 <th className="px-3 py-3 text-right bg-blue-50/50">Cancel% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Margin% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">DQR% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Own% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Road Rev <span className="text-blue-500">F</span></th>
                 <th className="px-2 py-3 text-right bg-blue-50/30 border-l border-blue-100" title="FTD Enquiry">FTD.Enq</th>
                 <th className="px-2 py-3 text-right bg-blue-50/30" title="Yesterday Same Period">YSP.Enq</th>
                 <th className="px-2 py-3 text-right bg-blue-50/30">FTD.Bkg</th>
@@ -869,6 +925,16 @@ function HospitalSummary({ data }) {
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(h.MTD_CANCEL_PCT, 12, false)}>{pct(h.MTD_CANCEL_PCT)}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(h.MTD_F_MARGIN_PCT, TARGETS.margin_pct)}>{pct(h.MTD_F_MARGIN_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(h.MTD_F_DQR_PCT, TARGETS.dqr_pct)}>{pct(h.MTD_F_DQR_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(h.MTD_F_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}>{pct(h.MTD_F_OWN_ROAD_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">{fmtRL(h.MTD_F_ROAD_REV)}</td>
                     <td className="px-2 py-2.5 text-right text-xs border-l border-blue-100">{fmt(h.TODAY_ENQUIRY)}</td>
                     <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(h.YDAY_ENQUIRY)}</td>
                     <td className="px-2 py-2.5 text-right text-xs">{fmt(h.TODAY_BOOKING)} <span className={`${bkgArr.color} text-[10px]`}>{bkgArr.icon}</span></td>
@@ -1035,6 +1101,10 @@ function AgentSummary({ data }) {
                 <th className="px-3 py-3 text-right bg-blue-50/50">Conv% <span className="text-blue-500">F</span></th>
                 <th className="px-3 py-3 text-right bg-blue-50/50">Comp% <span className="text-blue-500">F</span></th>
                 <th className="px-3 py-3 text-right bg-blue-50/50">Cancel% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Margin% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">DQR% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Own% <span className="text-blue-500">F</span></th>
+                <th className="px-3 py-3 text-right bg-blue-50/50">Road Rev <span className="text-blue-500">F</span></th>
                 <th className="px-2 py-3 text-right bg-blue-50/30 border-l border-blue-100">T.Enq</th>
                 <th className="px-2 py-3 text-right bg-blue-50/30">Y.Enq</th>
                 <th className="px-2 py-3 text-right bg-blue-50/30">T.Bkg</th>
@@ -1080,6 +1150,16 @@ function AgentSummary({ data }) {
                     <td className="px-3 py-2.5 text-right">
                       <span className={statusColor(a.MTD_CANCEL_PCT, 12, false)}>{pct(a.MTD_CANCEL_PCT)}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(a.MTD_F_MARGIN_PCT, TARGETS.margin_pct)}>{pct(a.MTD_F_MARGIN_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(a.MTD_F_DQR_PCT, TARGETS.dqr_pct)}>{pct(a.MTD_F_DQR_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={statusColor(a.MTD_F_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}>{pct(a.MTD_F_OWN_ROAD_PCT)}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">{fmtRL(a.MTD_F_ROAD_REV)}</td>
                     <td className="px-2 py-2.5 text-right text-xs border-l border-blue-100">{fmt(a.TODAY_ENQUIRY)}</td>
                     <td className="px-2 py-2.5 text-right text-xs text-gray-400">{fmt(a.YDAY_ENQUIRY)}</td>
                     <td className="px-2 py-2.5 text-right text-xs">{fmt(a.TODAY_BOOKING)} <span className={`${bkgArr.color} text-[10px]`}>{bkgArr.icon}</span></td>
@@ -1158,6 +1238,21 @@ function CityRow({ city }) {
                 value={pct(city.MTD_CANCEL_PCT)}
                 color={statusColor(city.MTD_CANCEL_PCT, 12, false)}
               />
+              <MetricPill
+                label="Margin"
+                value={pct(city.MTD_F_MARGIN_PCT)}
+                color={statusColor(city.MTD_F_MARGIN_PCT, TARGETS.margin_pct)}
+              />
+              <MetricPill
+                label="DQR"
+                value={pct(city.MTD_F_DQR_PCT)}
+                color={statusColor(city.MTD_F_DQR_PCT, TARGETS.dqr_pct)}
+              />
+              <MetricPill
+                label="Own"
+                value={pct(city.MTD_F_OWN_ROAD_PCT)}
+                color={statusColor(city.MTD_F_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}
+              />
             </div>
 
             {/* Finance section */}
@@ -1221,6 +1316,21 @@ function CityRow({ city }) {
                 <MiniStat label="Completion" value={pct(city.MTD_TRIP_COMP_PCT)} />
                 <MiniStat label="Cancel" value={pct(city.MTD_CANCEL_PCT)}
                   color={statusColor(city.MTD_CANCEL_PCT, 12, false)} />
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                <MiniStat label="Margin %"
+                  value={pct(city.MTD_F_MARGIN_PCT)}
+                  color={statusColor(city.MTD_F_MARGIN_PCT, TARGETS.margin_pct)}
+                  target="28%" />
+                <MiniStat label="DQR %"
+                  value={pct(city.MTD_F_DQR_PCT)}
+                  color={statusColor(city.MTD_F_DQR_PCT, TARGETS.dqr_pct)}
+                  target="35%" />
+                <MiniStat label="Own Vehicle %"
+                  value={pct(city.MTD_F_OWN_ROAD_PCT)}
+                  color={statusColor(city.MTD_F_OWN_ROAD_PCT, TARGETS.own_vehicle_pct)}
+                  target="55%" />
+                <MiniStat label="Road Revenue" value={fmtRL(city.MTD_F_ROAD_REV)} />
               </div>
             </div>
 
